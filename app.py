@@ -86,10 +86,10 @@ class StartBody(BaseModel):
 async def api_start(body: StartBody):
     if PROC.p and PROC.p.poll() is None:
         return JSONResponse({"error":"capture already running"}, status_code=409)
-    test_py = str(BASE / "test.py")
-    if not os.path.exists(test_py):
-        return JSONResponse({"error":"test.py not found"}, status_code=400)
-    cmd = [py(), test_py, "-i", body.iface, "-o", body.pcap, "--features-csv", body.features_csv]
+    main_py = str(BASE / "main.py")
+    if not os.path.exists(main_py):
+        return JSONResponse({"error":"main.py not found"}, status_code=400)
+    cmd = [py(), main_py, "-i", body.iface, "-o", body.pcap, "--features-csv", body.features_csv]
     if body.seconds and body.seconds > 0:
         cmd += ["-t", str(body.seconds)]
     flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name=="nt" else 0

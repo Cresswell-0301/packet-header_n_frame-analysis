@@ -193,7 +193,7 @@ def parse_http(payload_bytes):
     return None, None, None
 
 # flow stats store
-flows = defaultdict(lambda: {"pkts":0,"bytes":0,"first":None,"last":None,"iat_min":None,"iat_max":None,"iat_sum":0.0})
+flows = defaultdict(lambda: {"pkts": 0, "bytes": 0, "first": None, "last": None, "iat_min": None, "iat_max": None, "iat_sum": 0.0})
 t0 = None
 
 # feature columns
