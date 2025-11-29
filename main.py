@@ -630,7 +630,6 @@ def main():
     finally:
         # flow summary to log
         log.write("\n=== Flow summary ===\n")
-        # print("\n=== Flow summary ===")
 
         for k,v in flows.items():
             s,d,proto,sp,dp = k
@@ -638,7 +637,6 @@ def main():
             iat_avg = (v["iat_sum"]/max(1,(v["pkts"]-1))) if v["pkts"]>1 else 0.0
             line = f"{s}:{sp} -> {d}:{dp} proto={proto} pkts={v['pkts']} bytes={v['bytes']} dur={dur:.6f}s iat_min={v['iat_min'] or 0:.6f}s iat_avg={iat_avg:.6f}s iat_max={v['iat_max'] or 0:.6f}s"
             log.write(line+"\n")
-            # print(line)
         log.close()
 
         if writer: 
@@ -677,8 +675,6 @@ def main():
 
         if args.features_parquet:
             print(f"Parquet written       : {args.features_parquet}")
-        
-
 
         print("\nExit.")
 
