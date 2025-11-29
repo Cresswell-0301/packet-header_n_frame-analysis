@@ -196,28 +196,47 @@ def parse_http(payload_bytes):
 flows = defaultdict(lambda: {"pkts":0,"bytes":0,"first":None,"last":None,"iat_min":None,"iat_max":None,"iat_sum":0.0})
 t0 = None
 
-# -------- feature engineering --------
+# feature columns
 FEATURE_COLS = [
-    # time
-    "frame_no","ts_epoch","t_rel","len_bytes",
+# Metadata
+    "frame_no", "ts_epoch", "t_rel", "ts_local", "len_bytes",
 
-    # L2
-    "eth_src","eth_dst","eth_type","vlan_id","vlan_prio",
+# L2
+    "eth_src", "eth_dst", "eth_type", "vlan_id", "vlan_prio",
 
-    # L3
-    "ip_version","ip_src","ip_dst","ttl_hlim","dscp","ecn","ip_flags_df","ip_flags_mf","ip_frag_off","ipv4_checksum_ok",
+# L3 - IPv4 Header
+    # Version
+    "ip_version",
+    
+    # Type of Service
+    "ip_tos", "dscp", "ecn",
 
-    # L4
-    "l4_proto","sport","dport","tcp_flags","tcp_win","tcp_hdr_len","udp_len","l4_checksum_ok",
+    # Total Length
+    "ip_total_len",
 
-    # TCP opts
-    "opt_mss","opt_wscale","opt_sackok","opt_tsval","opt_tsecr",
+    # Identification
+    "ip_id",
 
-    # L7
-    "dns_qname","dns_a","dns_aaaa","dns_cname","tls_sni","http_method","http_host","http_path",
+    # Flag & Fragment Offset
+    "ip_flags_df", "ip_flags_mf", "ip_frag_off",
 
-    # simple flow
-    "flow_pkts","flow_bytes","flow_iat_min","flow_iat_avg","flow_iat_max"
+    # TTL & Protocol
+    "ttl_hlim", "ip_proto",
+
+    # Header Checksum
+    "ip_hdr_checksum", "ipv4_checksum_ok",
+    
+    # Source & Destination IP
+    "ip_src", "ip_dst",
+
+    # Extra
+    "ip_ihl_bytes",
+
+# L4
+    "l4_proto", "sport", "dport", "tcp_flags", "tcp_win", "tcp_hdr_len", "l4_checksum_ok",
+
+# Simple Flow
+    "flow_pkts", "flow_bytes", "flow_iat_min", "flow_iat_avg", "flow_iat_max",
 ]
 
 def five_tuple(pkt):
@@ -281,6 +300,17 @@ def flow_stats_for(pkt):
 
     return (pkts, by, f["iat_min"] or 0.0, iat_avg, f["iat_max"] or 0.0)
 
+def time_local(ts, t0, fmt):
+    rel = ts - (t0 or ts)
+    lt = time.localtime(ts)
+    ms = int((ts - int(ts)) * 1000)
+    ts_human = time.strftime("%Y-%m-%d %H:%M:%S", lt) + f".{ms:03d}"
+
+    if fmt == 'log':
+        return ts_human, rel, ts
+    elif fmt == 'csv':
+        return ts_human
+
 def feature_row(n, pkt, raw):
     # time
     ts = float(getattr(pkt, "time", time.time()))
@@ -289,23 +319,28 @@ def feature_row(n, pkt, raw):
     # L2
     eth = safe_get(pkt, Ether)
     vlan = safe_get(pkt, Dot1Q)
+
     eth_type = None
     vlan_id = None
     vlan_prio = None
 
     if eth:
         eth_type = f"0x{eth.type:04x}"
+
     if vlan:
         # handle stacked VLANs by taking outermost first
         vlan_id = vlan.vlan
         vlan_prio = vlan.prio
 
     # L3
-    ip_ver = ip_src = ip_dst = ttl_hlim = dscp = ecn = ip_df = ip_mf = ip_frag_off = ip4_ok = None
+    ip_ver = ip_tos = ip_src = ip_dst = ttl_hlim = dscp = ecn = ip_df = ip_mf = ip_frag_off = ip4_ok = None
+
+    ip_ihl_bytes = ip_total_len = ip_id = ip_proto = ip_hdr_checksum = None
 
     if IP in pkt:
         ip = pkt[IP]
-        ip_ver = 4
+        ip_ver = int(getattr(ip, "version", 4))
+        ip_tos = int(getattr(ip, "tos", 0))
         ip_src = ip.src
         ip_dst = ip.dst
         ttl_hlim = ip.ttl
@@ -316,6 +351,12 @@ def feature_row(n, pkt, raw):
         ip_mf = int(getattr(ip.flags, "MF", 0))
         ip_frag_off = int(ip.frag)
 
+        ip_ihl_bytes   = int(ip.ihl or 0) * 4
+        ip_total_len   = int(getattr(ip, "len", 0))
+        ip_id          = int(getattr(ip, "id", 0))
+        ip_proto       = int(getattr(ip, "proto", 0))
+        ip_hdr_checksum= int(getattr(ip, "chksum", 0))
+
         try: 
             ip4_ok = int(bool(ipv4_hdr_checksum_ok(ip)))
         except Exception: 
@@ -323,7 +364,7 @@ def feature_row(n, pkt, raw):
 
     elif IPv6 in pkt:
         ip = pkt[IPv6]
-        ip_ver = 6
+        ip_ver = int(getattr(ip, "version", 6))
         ip_src = ip.src
         ip_dst = ip.dst
         ttl_hlim = ip.hlim
@@ -333,7 +374,7 @@ def feature_row(n, pkt, raw):
         ip4_ok = None
 
     # L4
-    l4_proto = sport = dport = tcp_flags = tcp_win = tcp_hlen = udp_len = l4_ok = None
+    l4_proto = sport = dport = tcp_flags = tcp_win = tcp_hlen = l4_ok = None
 
     if TCP in pkt:
         t = pkt[TCP]
@@ -349,7 +390,6 @@ def feature_row(n, pkt, raw):
         l4_proto = 17
         sport = u.sport
         dport = u.dport
-        udp_len = int(u.len)
 
     try:
         ok = l4_checksum_ok(pkt)
@@ -357,92 +397,63 @@ def feature_row(n, pkt, raw):
     except Exception:
         l4_ok = None
     
-    # TCP options
-    opt_mss = opt_wscale = opt_sackok = opt_tsval = opt_tsecr = None
-
-    if TCP in pkt:
-        opts = parse_tcp_options(pkt[TCP])
-        opt_mss    = opts.get("opt_mss")
-        opt_wscale = opts.get("opt_wscale")
-        opt_sackok = opts.get("opt_sackok")
-        opt_tsval  = opts.get("opt_tsval")
-        opt_tsecr  = opts.get("opt_tsecr")
-    # L7
-    dns_qname = dns_a = dns_aaaa = dns_cname = None
-
-    d = safe_get(pkt, DNS)
-
-    if d:
-        if d.qr==0 and d.qd:
-            dns_qname = d.qd.qname.decode(errors='ignore')
-
-        if d.qr==1 and d.an:
-            # collect first occurrence of types
-            for i in range(int(d.ancount or 0)):
-                rr = d.an[i]
-                if isinstance(rr, DNSRR):
-                    if rr.type == 1 and dns_a is None: 
-                        dns_a = str(rr.rdata)
-                    if rr.type == 28 and dns_aaaa is None: 
-                        dns_aaaa = str(rr.rdata)
-                    if rr.type == 5 and dns_cname is None:
-                        try: 
-                            dns_cname = rr.rdata.decode(errors='ignore')
-                        except: 
-                            dns_cname = str(rr.rdata)
-    tls_sni = http_method = http_host = http_path = None
-
-    payload = bytes(pkt[Raw].load) if Raw in pkt else b""
-
-    if TCP in pkt and payload:
-        sni = parse_tls_sni(payload)
-
-        if sni: 
-            tls_sni = sni
-
-        m,h,p = parse_http(payload)
-
-        if m: 
-            http_method = m
-            http_host = h
-            http_path = p
-
     # flow stats (after update_flow_stats was called)
     f_pkts, f_bytes, f_iat_min, f_iat_avg, f_iat_max = flow_stats_for(pkt)
     
+    ts_human = time_local(float(getattr(pkt, "time", time.time())), t0, 'csv')
+
     return {
+    # Metadata
         "frame_no": n, 
-        
         "ts_epoch": ts, 
-
-        "t_rel": t_rel, 
-
+        "t_rel": t_rel,
+        "ts_local": ' ' + ts_human,
         "len_bytes": len(raw),
 
+    # L2
         "eth_src": eth.src if eth else None, 
         "eth_dst": eth.dst if eth else None, 
         "eth_type": eth_type,
-
-        "vlan_id": vlan_id, 
+        "vlan_id": vlan_id,
         "vlan_prio": vlan_prio,
 
-        "ip_version": ip_ver, 
-        "ip_src": ip_src, 
-        "ip_dst": ip_dst, 
-
-        "ttl_hlim": ttl_hlim, 
-
+    # L3 - IPv4 Header
+        # Version
+        "ip_version": ip_ver,
+        
+        # Type of Service
+        "ip_tos": ip_tos,
         "dscp": dscp, 
-
         "ecn": ecn,
 
+        # Total Length
+        "ip_total_len": ip_total_len,
+
+        # Identification
+        "ip_id": ip_id,
+
+        # Flag & Fragment Offset
         "ip_flags_df": ip_df, 
         "ip_flags_mf": ip_mf, 
         "ip_frag_off": ip_frag_off, 
 
-        "ipv4_checksum_ok": ip4_ok,
+        # TTL & Protocol
+        "ttl_hlim": ttl_hlim, 
+        "ip_proto": ip_proto,
 
-        "l4_proto": l4_proto, 
+        # Header Checksum
+        "ip_hdr_checksum": ip_hdr_checksum,
+        "ipv4_checksum_ok": ip4_ok,
+        
+        # Source & Destination IP
+        "ip_src": ip_src, 
+        "ip_dst": ip_dst, 
+
+        # Extra
+        "ip_ihl_bytes": ip_ihl_bytes,
+
+    # L4
+        "l4_proto": l4_proto,
 
         "sport": sport, 
         "dport": dport, 
@@ -451,27 +462,9 @@ def feature_row(n, pkt, raw):
         "tcp_win": tcp_win, 
         "tcp_hdr_len": tcp_hlen, 
 
-        "udp_len": udp_len, 
-
         "l4_checksum_ok": l4_ok,
 
-        "opt_mss": opt_mss, 
-        "opt_wscale": opt_wscale, 
-        "opt_sackok": opt_sackok, 
-        "opt_tsval": opt_tsval, 
-        "opt_tsecr": opt_tsecr,
-
-        "dns_qname": dns_qname, 
-        "dns_a": dns_a, 
-        "dns_aaaa": dns_aaaa, 
-        "dns_cname": dns_cname,
-
-        "tls_sni": tls_sni, 
-
-        "http_method": http_method, 
-        "http_host": http_host, 
-        "http_path": http_path,
-
+    # Simple Flow
         "flow_pkts": f_pkts, 
         "flow_bytes": f_bytes, 
         "flow_iat_min": f_iat_min, 
@@ -479,20 +472,16 @@ def feature_row(n, pkt, raw):
         "flow_iat_max": f_iat_max
     }
 
-# -------- logging text (unchanged core pretty log) --------
+# Log text format
 def format_headers(p, n):
-    ts = float(getattr(p, "time", time.time()))
-    rel = ts - (t0 or ts)
-    lt = time.localtime(ts)
-    ms = int((ts - int(ts)) * 1000)
-    ts_human = time.strftime("%Y-%m-%d %H:%M:%S", lt) + f".{ms:03d}"
+    ts_human, rel, ts = time_local(float(getattr(p, "time", time.time())), t0, 'log')
     lines = [f"\n=== Frame {n} ===", f"ts_epoch={ts:.6f} ts_local={ts_human} t_rel={rel:.6f}s"]
     eth = safe_get(p, Ether)
     vlan = safe_get(p, Dot1Q)
 
     if eth: 
         lines.append(f"L2: Ethernet src={eth.src} dst={eth.dst} type=0x{eth.type:04x}")
-
+    
     while vlan:
         lines.append(f"  VLAN id={vlan.vlan} pri={vlan.prio}")
         vlan = vlan.payload if isinstance(vlan.payload, Dot1Q) else None
@@ -544,7 +533,7 @@ def format_headers(p, n):
 
     return "\n".join(lines)
 
-# -------- main --------
+# main
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-l","--list",action="store_true")
@@ -609,7 +598,7 @@ def main():
 
         # pretty log
         header = format_headers(pkt, n)
-        print(header)
+        # print(header)
         log.write(header + "\n")
         
         if args.preview_only:
@@ -618,19 +607,21 @@ def main():
         else:
             line = f"FrameBytes({len(raw)}B): {raw.hex(' ')}"
 
-        print(line)
+        # print(line)
         log.write(line + "\n")
         log.flush()
 
-    print(f"Capturing on: {args.iface}")
-    print(f"Writing to:   {args.outfile}")
-    print(f"Logging to:   {args.log}")
-    print(f"Features CSV: {args.features_csv}")
+    print(f"\nCapturing on : {args.iface}")
+    print(f"Writing to   : {args.outfile}")
+    print(f"Logging to   : {args.log}")
+    print(f"Features CSV : {args.features_csv}")
 
     if args.bpf: 
-        print(f"Filter:       {args.bpf}")
+        print(f"Filter       : {args.bpf}")
 
     try:
+        print("\n\nCapture started... Press Ctrl+C to stop.")
+
         sniff(iface=args.iface, prn=handle, store=False, filter=args.bpf,
               count=args.count if args.count>0 else 0,
               timeout=args.seconds if args.seconds>0 else None)
@@ -639,7 +630,7 @@ def main():
     finally:
         # flow summary to log
         log.write("\n=== Flow summary ===\n")
-        print("\n=== Flow summary ===")
+        # print("\n=== Flow summary ===")
 
         for k,v in flows.items():
             s,d,proto,sp,dp = k
@@ -647,12 +638,20 @@ def main():
             iat_avg = (v["iat_sum"]/max(1,(v["pkts"]-1))) if v["pkts"]>1 else 0.0
             line = f"{s}:{sp} -> {d}:{dp} proto={proto} pkts={v['pkts']} bytes={v['bytes']} dur={dur:.6f}s iat_min={v['iat_min'] or 0:.6f}s iat_avg={iat_avg:.6f}s iat_max={v['iat_max'] or 0:.6f}s"
             log.write(line+"\n")
-            print(line)
+            # print(line)
         log.close()
 
         if writer: 
             writer.close()
 
+        print("\nCapture stopped.\n")
+        
+        print(f"Total packets captured : {n}")
+        print(f"Total flows            : {len(flows)}\n")
+
+        print(f"PCAP written           : {args.outfile}")
+        print(f"Log written            : {args.log}")
+        
         # write features
         if pd is None:
             # minimal CSV writer without pandas
@@ -672,14 +671,16 @@ def main():
                 try:
                     df.to_parquet(args.features_parquet, index=False)
                 except Exception as e:
-                    print(f"Parquet write failed: {e}")
+                    print(f"Parquet write failed       : {e}")
 
-        print(f"\nFeatures written: {args.features_csv}")
+        print(f"Features written       : {args.features_csv}")
 
         if args.features_parquet:
-            print(f"Parquet written:  {args.features_parquet}")
+            print(f"Parquet written       : {args.features_parquet}")
+        
 
-        print("\nStopped.")
+
+        print("\nExit.")
 
 if __name__ == "__main__":
     import struct
