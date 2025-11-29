@@ -1,6 +1,6 @@
 # NetRisk — Packet Header & Frame Analyst (Web GUI)
 
-Capture live traffic with Scapy/Npcap. Extract L2–L7 features to `features.csv`. Score risk to `scored.csv`. Operate from a local FastAPI Web GUI.
+Capture live traffic with Scapy/Npcap. Extract L2–L4 features to `features.csv`. Score risk to `scored.csv`. Operate from a local FastAPI Web GUI.
 
 ---
 
@@ -56,7 +56,7 @@ Open: http://127.0.0.1:8000
 
 ### Outputs
 - `capture_live.pcap` — raw packets  
-- `features.csv` — per-packet features (L2–L7 + simple flow stats)  
+- `features.csv` — per-packet features (L2–L4 + simple flow stats)  
 - `scored.csv` — numeric features + `risk_0_100`
 
 ---
