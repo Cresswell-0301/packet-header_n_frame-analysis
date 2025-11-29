@@ -200,34 +200,44 @@ t0 = None
 FEATURE_COLS = [
     # time
     "frame_no","ts_epoch","t_rel","len_bytes",
+
     # L2
     "eth_src","eth_dst","eth_type","vlan_id","vlan_prio",
+
     # L3
     "ip_version","ip_src","ip_dst","ttl_hlim","dscp","ecn","ip_flags_df","ip_flags_mf","ip_frag_off","ipv4_checksum_ok",
+
     # L4
     "l4_proto","sport","dport","tcp_flags","tcp_win","tcp_hdr_len","udp_len","l4_checksum_ok",
+
     # TCP opts
     "opt_mss","opt_wscale","opt_sackok","opt_tsval","opt_tsecr",
+
     # L7
     "dns_qname","dns_a","dns_aaaa","dns_cname","tls_sni","http_method","http_host","http_path",
+    
     # simple flow
     "flow_pkts","flow_bytes","flow_iat_min","flow_iat_avg","flow_iat_max"
 ]
 
 def five_tuple(pkt):
     if IP in pkt:
-        s,d = pkt[IP].src, pkt[IP].dst
+        s,d = pkt[IP].src, 
+        pkt[IP].dst
         proto = pkt[IP].proto
     elif IPv6 in pkt:
-        s,d = pkt[IPv6].src, pkt[IPv6].dst
+        s,d = pkt[IPv6].src, 
+        pkt[IPv6].dst
         proto = pkt[IPv6].nh
     else:
         return None
     
     if TCP in pkt: 
-        sp,dp = pkt[TCP].sport, pkt[TCP].dport
+        sp,dp = pkt[TCP].sport
+        pkt[TCP].dport
     elif UDP in pkt: 
-        sp,dp = pkt[UDP].sport, pkt[UDP].dport
+        sp,dp = pkt[UDP].sport 
+        pkt[UDP].dport
     else: 
         sp=dp=None
 
@@ -279,9 +289,9 @@ def feature_row(n, pkt, raw):
     # time
     ts = float(getattr(pkt, "time", time.time()))
     t_rel = ts - (t0 or ts)
+
     # L2
     eth = safe_get(pkt, Ether)
-    d11 = safe_get(pkt, Dot11)
     vlan = safe_get(pkt, Dot1Q)
     eth_type = None
     vlan_id = None
@@ -291,7 +301,9 @@ def feature_row(n, pkt, raw):
         eth_type = f"0x{eth.type:04x}"
     if vlan:
         # handle stacked VLANs by taking outermost first
-        vlan_id = vlan.vlan; vlan_prio = vlan.prio
+        vlan_id = vlan.vlan
+        vlan_prio = vlan.prio
+    
     # L3
     ip_ver = ip_src = ip_dst = ttl_hlim = dscp = ecn = ip_df = ip_mf = ip_frag_off = ip4_ok = None
 
@@ -395,9 +407,9 @@ def feature_row(n, pkt, raw):
         m,h,p = parse_http(payload)
 
         if m: 
-            http_method=m
-            http_host=h
-            http_path=p
+            http_method = m
+            http_host = h
+            http_path = p
 
     # flow stats (after update_flow_stats was called)
     f_pkts, f_bytes, f_iat_min, f_iat_avg, f_iat_max = flow_stats_for(pkt)
@@ -544,7 +556,8 @@ def main():
 
     # overwrite outputs
     for p in (args.outfile, args.log, args.features_csv, args.features_parquet):
-        if p and os.path.exists(p): os.remove(p)
+        if p and os.path.exists(p): 
+            os.remove(p)
 
     # prepare writers
     log = open(args.log, "w", encoding="utf-8")
@@ -585,7 +598,10 @@ def main():
             line = f"PayloadPreview({k}B): {raw[:k].hex(' ')}"
         else:
             line = f"FrameBytes({len(raw)}B): {raw.hex(' ')}"
-        print(line); log.write(line + "\n"); log.flush()
+
+        print(line)
+        log.write(line + "\n")
+        log.flush()
 
     print(f"Capturing on: {args.iface}")
     print(f"Writing to:   {args.outfile}")
