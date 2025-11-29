@@ -215,7 +215,7 @@ FEATURE_COLS = [
 
     # L7
     "dns_qname","dns_a","dns_aaaa","dns_cname","tls_sni","http_method","http_host","http_path",
-    
+
     # simple flow
     "flow_pkts","flow_bytes","flow_iat_min","flow_iat_avg","flow_iat_max"
 ]
@@ -416,45 +416,66 @@ def feature_row(n, pkt, raw):
     
     return {
         "frame_no": n, 
+        
         "ts_epoch": ts, 
+
         "t_rel": t_rel, 
+
         "len_bytes": len(raw),
+
         "eth_src": eth.src if eth else None, 
         "eth_dst": eth.dst if eth else None, 
         "eth_type": eth_type,
+
         "vlan_id": vlan_id, 
         "vlan_prio": vlan_prio,
+
         "ip_version": ip_ver, 
         "ip_src": ip_src, 
         "ip_dst": ip_dst, 
+
         "ttl_hlim": ttl_hlim, 
+
         "dscp": dscp, 
+
         "ecn": ecn,
+
         "ip_flags_df": ip_df, 
         "ip_flags_mf": ip_mf, 
         "ip_frag_off": ip_frag_off, 
+
         "ipv4_checksum_ok": ip4_ok,
+
         "l4_proto": l4_proto, 
+
         "sport": sport, 
         "dport": dport, 
+
         "tcp_flags": tcp_flags,
         "tcp_win": tcp_win, 
         "tcp_hdr_len": tcp_hlen, 
+
         "udp_len": udp_len, 
+
         "l4_checksum_ok": l4_ok,
+
         "opt_mss": opt_mss, 
         "opt_wscale": opt_wscale, 
         "opt_sackok": opt_sackok, 
         "opt_tsval": opt_tsval, 
         "opt_tsecr": opt_tsecr,
+
         "dns_qname": dns_qname, 
         "dns_a": dns_a, 
         "dns_aaaa": dns_aaaa, 
         "dns_cname": dns_cname,
+
         "tls_sni": tls_sni, 
+
         "http_method": http_method, 
         "http_host": http_host, 
         "http_path": http_path,
+
         "flow_pkts": f_pkts, 
         "flow_bytes": f_bytes, 
         "flow_iat_min": f_iat_min, 
