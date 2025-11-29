@@ -222,22 +222,18 @@ FEATURE_COLS = [
 
 def five_tuple(pkt):
     if IP in pkt:
-        s,d = pkt[IP].src, 
-        pkt[IP].dst
+        s,d = pkt[IP].src, pkt[IP].dst
         proto = pkt[IP].proto
     elif IPv6 in pkt:
-        s,d = pkt[IPv6].src, 
-        pkt[IPv6].dst
+        s,d = pkt[IPv6].src, pkt[IPv6].dst
         proto = pkt[IPv6].nh
     else:
         return None
     
     if TCP in pkt: 
-        sp,dp = pkt[TCP].sport
-        pkt[TCP].dport
+        sp,dp = pkt[TCP].sport, pkt[TCP].dport
     elif UDP in pkt: 
-        sp,dp = pkt[UDP].sport 
-        pkt[UDP].dport
+        sp,dp = pkt[UDP].sport, pkt[UDP].dport
     else: 
         sp=dp=None
 
@@ -303,7 +299,7 @@ def feature_row(n, pkt, raw):
         # handle stacked VLANs by taking outermost first
         vlan_id = vlan.vlan
         vlan_prio = vlan.prio
-    
+
     # L3
     ip_ver = ip_src = ip_dst = ttl_hlim = dscp = ecn = ip_df = ip_mf = ip_frag_off = ip4_ok = None
 
@@ -333,7 +329,7 @@ def feature_row(n, pkt, raw):
         ttl_hlim = ip.hlim
         dscp = (getattr(ip,"tc",0)>>2)&0x3F
         ecn = getattr(ip,"tc",0)&0x3
-        ip_df=ip_mf = ip_frag_off=None
+        ip_df = ip_mf = ip_frag_off = None
         ip4_ok = None
 
     # L4
@@ -577,6 +573,8 @@ def main():
 
     # overwrite outputs
     for p in (args.outfile, args.log, args.features_csv, args.features_parquet):
+        if p and os.path.exists(p): 
+            os.remove(p)
         if p and os.path.exists(p): 
             os.remove(p)
 
