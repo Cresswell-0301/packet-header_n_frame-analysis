@@ -8,7 +8,7 @@ Capture live traffic with Scapy/Npcap. Extract L2–L7 features to `features.csv
 ```text
 packet-header_n_frame-analysis/
 ├─ app.py                  # FastAPI server + process manager
-├─ test.py                 # Live capture + feature extraction
+├─ main.py                 # Live capture + feature extraction
 ├─ templates/
 │  └─ index.html           # Web UI (rename your iindex.html → index.html if needed)
 └─ static/
@@ -64,11 +64,11 @@ Open: http://127.0.0.1:8000
 ## 6) CLI (optional)
 List interfaces:
 ```powershell
-python test.py -l
+python main.py -l
 ```
 
 Manual capture (10 seconds):
 ```powershell
-python test.py -i \Device\NPF_{YOUR_GUID} -o capture_live.pcap --features-csv features.csv -t 10
+python main.py -i \Device\NPF_{YOUR_GUID} -o capture_live.pcap --features-csv features.csv -t 10
 ```
 
