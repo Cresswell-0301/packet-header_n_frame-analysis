@@ -56,7 +56,7 @@
     </head>
     <body>
         <header>
-            <h2 style="margin: 0">NetRisk Web GUI</h2>
+            <!-- <h2 style="margin: 0">NetRisk Web GUI</h2> -->
             <span id="status" style="color: #888">idle</span>
         </header>
 
@@ -77,11 +77,11 @@
                 <!-- </div> -->
                 <div class="row" style="margin-top: 8px">
                     <label>Seconds</label>
-                    <input id="seconds" type="number" value="60" min="0" />
+                    <input id="seconds" type="number" value="8" min="0" />
                 </div>
                 <div style="margin-top: 10px">
                     <button onclick="startCap()">Start</button>
-                    <button onclick="stopCap()">Stop</button>
+                    <!-- <button onclick="stopCap()">Stop</button> -->
                 </div>
             </section>
 
@@ -105,7 +105,7 @@
                 </div>
             </section>
 
-            <section class="card">
+            <section class="card" id="topResult" hidden>
                 <h3 style="margin-top: 0">Top Results</h3>
                 <table>
                     <thead>
@@ -152,56 +152,74 @@
 
             async function startCap() {
                 const iface = document.getElementById("iface").value;
+
                 if (!iface) {
                     alert("Pick an interface");
                     return;
                 }
+
+                setStatus("capturing...");
+
                 const body = {
                     iface,
                     pcap: document.getElementById("pcap").value,
                     features_csv: document.getElementById("features").value,
                     seconds: parseInt(document.getElementById("seconds").value || "0"),
                 };
+
                 const res = await fetch("/api/start", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(body),
                 });
+
                 const data = await res.json();
+
                 if (!res.ok) {
                     alert(JSON.stringify(data));
                     return;
                 }
-                setStatus("capturing...");
-                log("START: " + (data.cmd || []).join(" "));
+
+                log("START: " + (data.cmd || []).join(" ") + "\n");
+
+                log("Capturing");
+
                 if (ws) {
                     try {
                         ws.close();
                     } catch {}
                 }
+
                 ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
-                ws.onopen = () => log("[ws] connected");
-                ws.onmessage = (e) => {
-                    const msg = e.data;
-                    log(msg);
 
-                    // when test.py ends, app.py broadcasts: "[process-exit] code=…"
-                    if (msg.startsWith("[process-exit]")) {
-                        setStatus("captured");
-                        // make downloads visible
-                        const pcap = document.getElementById("pcap").value;
-                        const feat = document.getElementById("features").value;
-                        const a = document.getElementById("downloadScored");
-                        a.href = "/download?path=" + encodeURIComponent(feat);
-                        a.style.display = "inline-block";
-                        a.textContent = "Download " + feat;
-
-                        // optional: also offer pcap download if you add a second link
-                        document.getElementById("downloadPcap").href = "/download?path=" + encodeURIComponent(pcap);
-                        document.getElementById("downloadPcap").style.display = "inline-block";
-                    }
+                ws.onopen = () => {
+                    setStatus("Captured");
+                    log("\nCaptured");
+                    log("PCAP         : " + body.pcap);
+                    log("Features CSV : " + body.features_csv + "\n");
                 };
-                ws.onclose = () => log("[ws] disconnected");
+
+                // ws.onmessage = (e) => {
+                //     const msg = e.data;
+                //     log(msg);
+
+                //     // when main.py ends, app.py broadcasts: "[process-exit] code=…"
+                //     if (msg.startsWith("[process-exit]")) {
+                //         setStatus("Captured");
+                //         // make downloads visible
+                //         const pcap = document.getElementById("pcap").value;
+                //         const feat = document.getElementById("features").value;
+                //         const a = document.getElementById("downloadScored");
+                //         a.href = "/download?path=" + encodeURIComponent(feat);
+                //         a.style.display = "inline-block";
+                //         a.textContent = "Download " + feat;
+
+                //         // optional: also offer pcap download if you add a second link
+                //         document.getElementById("downloadPcap").href = "/download?path=" + encodeURIComponent(pcap);
+                //         document.getElementById("downloadPcap").style.display = "inline-block";
+                //     }
+                // };
+                // ws.onclose = () => log("[ws] disconnected");
             }
 
             async function stopCap() {
@@ -214,25 +232,33 @@
                     features_csv: document.getElementById("features").value,
                     out_csv: document.getElementById("scored").value,
                 };
+
                 const res = await fetch("/api/score", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
                 const data = await res.json();
+
                 if (!res.ok) {
                     alert(JSON.stringify(data));
                     return;
                 }
+
+                document.getElementById("topResult").hidden = false;
                 const tb = document.getElementById("rows");
                 tb.innerHTML = "";
+
                 for (const r of data.rows) {
                     const tr = document.createElement("tr");
                     tr.innerHTML = `<td>${r.idx}</td><td>${r.risk}</td><td>${r.summary || ""}</td>`;
                     tb.appendChild(tr);
                 }
+
                 const a = document.getElementById("downloadScored");
                 a.href = "/download?path=" + encodeURIComponent(data.out_csv);
                 a.style.display = "inline-block";
                 a.textContent = "Download " + data.out_csv;
+
                 setStatus("scored");
-                log("Scored -> " + data.out_csv);
+
+                log("Scored       : " + data.out_csv);
             }
             refreshIfaces();
         </script>
