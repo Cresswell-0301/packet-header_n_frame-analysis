@@ -72,3 +72,8 @@ Manual capture (10 seconds):
 python main.py -i \Device\NPF_{YOUR_GUID} -o capture_live.pcap --features-csv features.csv -t 10
 ```
 
+Default interfaces capture:
+```powershell
+python main.py -t {seconds}
+```
+
