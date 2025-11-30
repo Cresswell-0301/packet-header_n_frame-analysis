@@ -549,6 +549,7 @@ def main():
     ap.add_argument("-t","--seconds",type=int,default=0)
     args = ap.parse_args()
 
+    # display list of interfaces
     if args.list:
         # list interfaces and exit
         if get_windows_if_list:
@@ -566,6 +567,27 @@ def main():
             os.remove(p)
         if p and os.path.exists(p): 
             os.remove(p)
+    
+    # validate iface
+    if get_windows_if_list:
+        found = False
+        for i, itf in enumerate(get_windows_if_list(), 1):
+            # checking without \Device\NPF_{...}
+            if args.iface.lower() in itf['guid'].lower():
+                found = True
+
+                # convert to \Device\NPF_{...}
+                args.iface = rf"\Device\NPF_{itf['guid']}"
+                break
+
+            # checking with \Device\NPF_{...}
+            if itf['guid'].lower() in args.iface.lower():
+                found = True
+                break
+           
+        if not found:
+            print(f"Error: Interface '{args.iface}' not found.")
+            return
 
     # prepare writers
     log = open(args.log, "w", encoding="utf-8")
