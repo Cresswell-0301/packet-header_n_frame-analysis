@@ -34,12 +34,14 @@ def py(): return sys.executable
 
 def discover_npcap():
     lst = []
+
     if os.name == "nt" and get_windows_if_list:
         try:
             for itf in get_windows_if_list():
                 name = itf.get("name","")
                 guid = (itf.get("guid","") or "").strip()
                 desc = itf.get("description","")
+                
                 # Build \Device\NPF_{GUID} exactly once
                 if guid:
                     # guid may already be "{...}" or bare
@@ -49,10 +51,12 @@ def discover_npcap():
                         dev = rf"\Device\NPF_{{{guid}}}"
                 else:
                     dev = name  # fallback
+                
                 disp = f"{name} | {desc}".strip(" |")
                 lst.append({"device": dev, "display": disp})
         except Exception:
             pass
+
     # fallback(s) unchanged...
     if not lst and get_if_list:
         try:
@@ -60,12 +64,16 @@ def discover_npcap():
                 lst.append({"device": name, "display": name})
         except Exception:
             pass
+
     # dedupe
     seen=set(); out=[]
+    
     for d in lst:
         t=(d["device"], d["display"])
+
         if t not in seen:
             seen.add(t); out.append(d)
+
     return out
 
 @app.get("/", response_class=HTMLResponse)
@@ -86,12 +94,17 @@ class StartBody(BaseModel):
 async def api_start(body: StartBody):
     if PROC.p and PROC.p.poll() is None:
         return JSONResponse({"error":"capture already running"}, status_code=409)
+    
     main_py = str(BASE / "main.py")
+    
     if not os.path.exists(main_py):
         return JSONResponse({"error":"main.py not found"}, status_code=400)
+    
     cmd = [py(), main_py, "-i", body.iface, "-o", body.pcap, "--features-csv", body.features_csv]
+    
     if body.seconds and body.seconds > 0:
         cmd += ["-t", str(body.seconds)]
+    
     flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name=="nt" else 0
     PROC.p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=flags)
 
@@ -144,20 +157,26 @@ class ScoreBody(BaseModel):
 async def api_score(body: ScoreBody):
     if pd is None or np is None:
         return JSONResponse({"error":"install pandas and numpy"}, status_code=400)
+    
     if not os.path.exists(body.features_csv):
         return JSONResponse({"error": f"not found: {body.features_csv}"}, status_code=404)
+   
     df = pd.read_csv(body.features_csv)
     X = df.select_dtypes(include=["number"]).copy()
+
     if X.empty:
         return JSONResponse({"error":"no numeric features"}, status_code=400)
-
+    
     proba = None
+
     if proba is None:
         s = np.zeros(len(X))
+
         def first(*cols):
             for c in cols:
                 if c in X.columns: return X[c].astype(float).to_numpy()
             return None
+        
         v = first("ipv4_checksum_ok");  s += 1.5*(1 - np.clip(v,0,1)) if v is not None else 0
         v = first("l4_checksum_ok");    s += 1.2*(1 - np.clip(v,0,1)) if v is not None else 0
         v = first("flow_iat_avg");      s += np.tanh(v/0.5) if v is not None else 0
@@ -165,24 +184,85 @@ async def api_score(body: ScoreBody):
         proba = 1/(1+np.exp(-s))
 
     risk = (proba*100).round().astype(int)
-    out = X.copy(); out.insert(0, "risk_0_100", risk.astype(int))
-    for c in ["frame_no","ts_epoch","ip_src","ip_dst","sport","dport","l4_proto"]:
-        if c in df.columns and c not in out.columns: out[c]=df[c]
+
+    FEATURE_COLS = [
+    # Metadata
+        "frame_no", "ts_epoch", "t_rel", "ts_local", "len_bytes",
+
+    # L2
+        "eth_src", "eth_dst", "eth_type", "vlan_id", "vlan_prio",
+
+    # L3 - IPv4 Header
+        # Version
+        "ip_version",
+            
+        # Type of Service
+        "ip_tos", "dscp", "ecn",
+
+        # Total Length
+        "ip_total_len",
+
+        # Identification
+        "ip_id",
+
+        # Flag & Fragment Offset
+        "ip_flags_df", "ip_flags_mf", "ip_frag_off",
+
+        # TTL & Protocol
+        "ttl_hlim", "ip_proto",
+
+        # Header Checksum
+        "ip_hdr_checksum", "ipv4_checksum_ok",
+            
+        # Source & Destination IP
+        "ip_src", "ip_dst",
+
+        # Extra
+        "ip_ihl_bytes",
+
+    # L4
+        "l4_proto", "sport", "dport", "tcp_flags", "tcp_win", "tcp_hdr_len", "l4_checksum_ok",
+
+    # Simple Flow
+        "flow_pkts", "flow_bytes", "flow_iat_min", "flow_iat_avg", "flow_iat_max",
+
+        "risk_0_100",
+    ]
+    
+    # Build output in desired order; missing columns are skipped safely.
+    ordered = [c for c in FEATURE_COLS if c in df.columns]
+    
+    # Keep any extra columns (if present) at the end, after the ordered set.
+    extras = [c for c in df.columns if c not in ordered]
+    out = df[ordered + extras].copy()
+
+    out["risk_0_100"] = risk.astype(int)
+
     out.to_csv(body.out_csv, index=False)
 
-    top=[]
-    for i, r in sorted(enumerate(risk.tolist()), key=lambda t:t[1], reverse=True)[:50]:
-        summ=[]
-        for c in ["ip_src","ip_dst","sport","dport","l4_proto","ttl_hlim"]:
-            if c in df.columns: summ.append(f"{c}={df.iloc[i][c]}")
+    # top results for the UI table
+    top = []
+
+    for i, r in sorted(enumerate(risk.tolist()), key=lambda t: t[1], reverse=True)[:50]:
+        summ = []
+
+        for c in ["ip_src", "ip_dst", "sport", "dport", "l4_proto", "ttl_hlim"]:
+            if c in df.columns:
+                summ.append(f"{c}={df.iloc[i][c]}")
+
         top.append({"idx": int(i), "risk": int(r), "summary": "  ".join(summ)})
+
     return JSONResponse({"ok": True, "rows": top, "out_csv": body.out_csv})
 
 @app.get("/download")
 async def download(path: str):
     p = Path(path).resolve()
-    if not p.exists(): return JSONResponse({"error":"file not found"}, status_code=404)
+
+    if not p.exists(): 
+        return JSONResponse({"error":"file not found"}, status_code=404)
+    
     return FileResponse(str(p), filename=p.name)
 
 @app.get("/healthz")
-async def health(): return {"ok": True}
+async def health(): 
+    return {"ok": True}
