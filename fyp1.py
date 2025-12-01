@@ -1,4 +1,5 @@
-import argparse, time, struct, os, math
+import argparse, time, struct, os, math, csv
+import pandas as _pd
 from collections import defaultdict
 from scapy.all import sniff, PcapWriter, get_if_list, \
     Ether, Dot1Q, RadioTap, Dot11, CookedLinux, \
@@ -590,6 +591,98 @@ def select_interface_interactive():
                 pass
             print("Invalid selection. Please try again.")
 
+def _heuristic_ip_score(row):
+    score = 0
+    
+    # Header integrity
+    if row.get("ipv4_checksum_ok") == 0:
+        score += 35
+
+    if row.get("l4_checksum_ok") == 0:
+        score += 25
+
+    # Fragmentation/flags
+    if (row.get("ip_flags_mf") == 1) or (row.get("ip_frag_off", 0) > 0):
+        score += 10
+
+    # TTL out-of-typical range (common 32/64/128/255; penalize very low)
+    ttl = row.get("ttl_hlim") or 0
+
+    if 0 < ttl < 20:
+        score += 10
+
+    # Suspicious TCP flags (e.g., just SYN+FIN or empty)
+    flags = (row.get("tcp_flags") or "").upper()
+
+    if "SF" in flags or flags == "":
+        score += 5
+
+    # DSCP/ECN unusual (light nudge only)
+    dscp = row.get("dscp") or 0
+
+    if dscp not in (0, 8, 16, 24, 32, 46):  # common DSCPs
+        score += 3
+
+    dp = row.get("dport")
+
+    # focus ports
+    if dp in (22, 80, 443, 445):
+        score += 2
+
+    return max(0, min(100, score))
+
+def _risk_from_ip_score(ip_score):
+    # treat ip_score as base; cap 100
+    return max(0, min(100, int(ip_score)))
+
+def _label_from_scores(ip_score):
+    if ip_score >= 70: 
+        return "attack"
+    
+    if ip_score >= 40: 
+        return "tampered"
+    
+    return "benign"
+
+def score_packet(args):
+    scores_out = "scores.csv"
+
+    try:
+        _df = _pd.read_csv(args.features_csv)
+
+        ip_scores = []
+        risk_scores = []
+        labels = []
+
+        for _, r in _df.iterrows():
+            s = _heuristic_ip_score(r)
+            ip_scores.append(s)
+            rs = _risk_from_ip_score(s)
+            risk_scores.append(rs)
+            labels.append(_label_from_scores(s))
+
+        _df["label"] = labels
+        _df["ip_score"] = ip_scores
+        _df["risk_score"] = risk_scores
+
+        # add the three columns to the end
+        final_cols = list(_df.columns)
+
+        # new columns are moved to the tail in exact order
+        for c in ("label", "ip_score", "risk_score"):
+            final_cols.remove(c)
+
+        final_cols = final_cols + ["label", "ip_score", "risk_score"]
+
+        _df.to_csv(scores_out, index=False, columns=final_cols)
+        
+        print(f"Scores written         : {scores_out}")
+
+    except Exception as e:
+            print(f"\nFailed to write {scores_out}: {e}")
+
+    return None
+
 # main
 def main():
     ap = argparse.ArgumentParser()
@@ -735,8 +828,6 @@ def main():
         # write features
         if pd is None:
             # minimal CSV writer without pandas
-            import csv
-
             with open(args.features_csv, "w", newline="", encoding="utf-8") as f:
                 w = csv.DictWriter(f, fieldnames=FEATURE_COLS, extrasaction="ignore")
                 w.writeheader()
@@ -757,6 +848,10 @@ def main():
 
         if args.features_parquet:
             print(f"Parquet written       : {args.features_parquet}")
+        
+        print("\nScoring packets...\n")
+
+        score_packet(args)
 
         print("\nExit.")
 
