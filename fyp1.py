@@ -2,9 +2,10 @@ import argparse, time, struct, os, math, csv
 import pandas as _pd
 from collections import defaultdict
 from scapy.all import sniff, PcapWriter, get_if_list, \
-    Ether, Dot1Q, RadioTap, Dot11, CookedLinux, \
-    ARP, IP, IPv6, TCP, UDP, ICMP, Raw, DNS, DNSQR, DNSRR
-from scapy.packet import NoPayload
+    Ether, Dot1Q, \
+    IP, IPv6, TCP, UDP, Raw
+from scapy.interfaces import resolve_iface
+
 try:
     import pandas as pd
 except Exception:
@@ -15,7 +16,6 @@ try:
 except Exception:
     get_windows_if_list = None
 
-# DEFAULT_IFACE = r"\Device\NPF_{8AA9DF64-690E-4864-B382-29FCA46A2482}"
 DEFAULT_IFACE = None
 
 def safe_get(p, layer):
@@ -73,7 +73,7 @@ def l4_checksum_ok(pkt):
     
     if proto == 6: 
         seg = seg[:16] + b'\x00\x00' + seg[18:]
-    else:          
+    else:           
         seg = seg[:6]  + b'\x00\x00' + seg[8:]
     
     calc = ones_comp_sum(ph + seg)
@@ -535,62 +535,6 @@ def format_headers(p, n):
 
     return "\n".join(lines)
 
-def select_interface_interactive():
-    print("\nScanning interfaces...")
-    
-    if get_windows_if_list:
-        # Windows Logic
-        ifaces = get_windows_if_list()
-        if not ifaces:
-            print("No interfaces found.")
-            exit(1)
-            
-        print("-" * 80)
-        print(f"{'No.':<4} {'Name (Description)':<50}")
-        print("-" * 80)
-        
-        for i, itf in enumerate(ifaces, 1):            
-            desc = itf['description']
-            print(f"{i:<4} {desc[:48]:<50}")
-
-        print("-" * 80)
-        
-        while True:
-            try:
-                sel = input(f"\nSelect interface (1-{len(ifaces)}): ")
-                idx = int(sel)
-
-                if 1 <= idx <= len(ifaces):
-                    selected = ifaces[idx-1]
-                    return selected['guid']
-            except ValueError:
-                pass
-            print("Invalid selection. Please try again.")
-    else:
-        # Linux/Mac Logic
-        ifaces = get_if_list()
-        if not ifaces:
-            print("No interfaces found.")
-            exit(1)
-            
-        print("-" * 40)
-        print("Available Interfaces:")
-        for i, itf in enumerate(ifaces, 1):
-            print(f"{i}. {itf}")
-        print("-" * 40)
-        
-        while True:
-            try:
-                sel = input(f"\nSelect interface (1-{len(ifaces)}): ")
-                idx = int(sel)
-                if 1 <= idx <= len(ifaces):
-                    selected = ifaces[idx-1]
-                    print(f"Selected: {selected}")
-                    return selected
-            except ValueError:
-                pass
-            print("Invalid selection. Please try again.")
-
 def _heuristic_ip_score(row):
     score = 0
     
@@ -683,20 +627,60 @@ def score_packet(args):
 
     return None
 
+EXCLUDE_KEYWORDS = (
+    "loopback", "wan miniport", "virtual", "vmware", "hyper-v",
+    "bluetooth", "wi-fi direct", "tunnel", "teredo", "isatap"
+)
+
+def good_capture_ifaces(include_virtual=False, verbose=True):
+    if get_windows_if_list:
+        raw = get_windows_if_list() or []
+        primary, fallback = [], []
+        for x in raw:
+            guid = x.get("guid")
+            if not guid:
+                continue
+            name = rf"\Device\NPF_{guid}"
+            desc = (x.get("description") or "").lower()
+            ips  = x.get("ips") or []
+
+            # always keep a full fallback list 
+            fallback.append(name)
+
+            if (not include_virtual) and any(k in desc for k in EXCLUDE_KEYWORDS):
+                continue
+
+            # prefer devices with an IPv4 address
+            if not any("." in ip for ip in ips):
+                continue
+
+            primary.append(name)
+
+        if primary:
+            return primary
+        if verbose:
+            print("[warn] primary scan empty; falling back to ALL devices.")
+        return fallback
+
+    return list(get_if_list() or [])
+
 # main
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("-l","--list",action="store_true")
-    ap.add_argument("-i","--iface", default=DEFAULT_IFACE)
-    ap.add_argument("-f","--bpf",default="ip and tcp and (port 22 or port 80 or port 443 or port 445)")
-    ap.add_argument("-o","--outfile",default="capture_live.pcap")
-    ap.add_argument("--log",default="capture_live.txt")
-    ap.add_argument("--features-csv",default="features.csv", help="CSV feature output")
-    ap.add_argument("--features-parquet",default=None, help="Optional Parquet output (requires pyarrow)")
-    ap.add_argument("--preview-only",action="store_true")
-    ap.add_argument("--preview-bytes",type=int,default=32)
-    ap.add_argument("-c","--count",type=int,default=0)
-    ap.add_argument("-t","--seconds",type=int,default=0)
+    ap.add_argument("-l", "--list", action="store_true")
+    ap.add_argument("-i", "--iface",  default=DEFAULT_IFACE)
+    ap.add_argument("-f", "--bpf", default="ip and tcp and (port 22 or port 80 or port 443 or port 445)")
+    ap.add_argument("-o", "--outfile", default="capture_live.pcap")
+    ap.add_argument("--log", default="capture_live.txt")
+    ap.add_argument("--features-csv", default="features.csv", help="CSV feature output")
+    ap.add_argument("--features-parquet", default=None, help="Optional Parquet output (requires pyarrow)")
+    ap.add_argument("--preview-only", action="store_true")
+    ap.add_argument("--preview-bytes", type=int, default=32)
+    ap.add_argument("-c", "--count", type=int, default=0)
+    ap.add_argument("-t", "--seconds", type=int, default=0)
+    ap.add_argument("--include-virtual",  action="store_true", help="Include virtual/WAN/loopback adapters in capture candidates")
+    ap.add_argument("--ifaces",  default=None, help="Comma-separated Npcap device names to sniff (overrides auto selection)")
+
     args = ap.parse_args()
 
     # display list of interfaces
@@ -711,9 +695,40 @@ def main():
                 print(f"{i}. {iface}")
         return
     
-    if args.iface is None:
-        args.iface = select_interface_interactive()
+    if args.ifaces:
+        candidates = [s.strip() for s in args.ifaces.split(",") if s.strip()]
+    else:
+        candidates = good_capture_ifaces(include_virtual=True)
 
+    all_ifaces = []
+
+    print("\nValidating capture interfaces...")
+
+    for iface in candidates:
+        try:
+            resolve_iface(iface)
+            all_ifaces.append(iface)
+        except Exception:
+            pass
+
+    if not all_ifaces:
+        print("No valid interfaces found (all candidates failed to resolve).")
+        return
+    
+    iface_names = {}
+
+    if get_windows_if_list:
+        try:
+            for x in get_windows_if_list():
+                guid = x.get("guid")
+                if guid:
+                    # map device path to interface name
+                    friendly = x.get("name") or x.get("description") or "Unknown"
+                    dev_path = rf"\Device\NPF_{guid}"
+                    iface_names[dev_path] = friendly
+        except:
+            pass
+    
     # overwrite outputs
     for p in (args.outfile, args.log, args.features_csv, args.features_parquet):
         if p and os.path.exists(p): 
@@ -721,31 +736,9 @@ def main():
         if p and os.path.exists(p): 
             os.remove(p)
     
-    # validate iface
-    if get_windows_if_list:
-        found = False
-        for i, itf in enumerate(get_windows_if_list(), 1):
-            # checking without \Device\NPF_{...}
-            if args.iface.lower() in itf['guid'].lower():
-                found = True
-
-                # convert to \Device\NPF_{...}
-                args.iface = rf"\Device\NPF_{itf['guid']}"
-                break
-
-            # checking with \Device\NPF_{...}
-            if itf['guid'].lower() in args.iface.lower():
-                found = True
-                break
-           
-        if not found:
-            print(f"Error: Interface '{args.iface}' not found.")
-            return
-
-    # prepare writers
     log = open(args.log, "w", encoding="utf-8")
     writer = None
-    rows = []  # buffer features if pandas unavailable; else we’ll build DataFrame at end
+    rows = []
     n = 0
 
     def handle(pkt):
@@ -771,9 +764,9 @@ def main():
         row = feature_row(n, pkt, raw)
         rows.append(row)
 
-        # pretty log
         header = format_headers(pkt, n)
-        # print(header)
+
+        # Write header to log
         log.write(header + "\n")
         
         if args.preview_only:
@@ -782,12 +775,17 @@ def main():
         else:
             line = f"FrameBytes({len(raw)}B): {raw.hex(' ')}"
 
-        # print(line)
+        # Write to log
         log.write(line + "\n")
         log.flush()
 
-    print(f"\nCapturing on : {args.iface}")
-    print(f"Writing to   : {args.outfile}")
+    print("\nCapturing on valid interfaces:")
+    
+    for idx, itf in enumerate(all_ifaces, 1):
+        friendly_name = iface_names.get(itf, "Interface")
+        print(f"  {idx}. {friendly_name} => {itf}")
+
+    print(f"\nWriting to   : {args.outfile}")
     print(f"Logging to   : {args.log}")
     print(f"Features CSV : {args.features_csv}")
 
@@ -795,9 +793,9 @@ def main():
         print(f"Filter       : {args.bpf}")
 
     try:
-        print("\n\nCapture started... Press Ctrl+C to stop.")
+        print("\nCapture started... Press Ctrl+C to stop.")
 
-        sniff(iface=args.iface, prn=handle, store=False, filter=args.bpf,
+        sniff(iface=all_ifaces, prn=handle, store=False, filter=args.bpf,
               count=args.count if args.count>0 else 0,
               timeout=args.seconds if args.seconds>0 else None)
     except KeyboardInterrupt:
@@ -835,14 +833,17 @@ def main():
                 for r in rows: 
                     w.writerow(r)
         else:
-            df = pd.DataFrame(rows, columns=FEATURE_COLS)
-            df.to_csv(args.features_csv, index=False)
+            if rows:
+                df = pd.DataFrame(rows, columns=FEATURE_COLS)
+                df.to_csv(args.features_csv, index=False)
 
-            if args.features_parquet:
-                try:
-                    df.to_parquet(args.features_parquet, index=False)
-                except Exception as e:
-                    print(f"Parquet write failed       : {e}")
+                if args.features_parquet:
+                    try:
+                        df.to_parquet(args.features_parquet, index=False)
+                    except Exception as e:
+                        print(f"Parquet write failed       : {e}")
+            else:
+                print("No packets captured, skipping CSV generation.")
 
         print(f"Features written       : {args.features_csv}")
 
