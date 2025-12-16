@@ -594,6 +594,13 @@ def score_packet(args):
     try:
         _df = _pd.read_csv(args.features_csv)
 
+        num_cols = ["ipv4_checksum_ok", "l4_checksum_ok", "ip_flags_mf", "ip_frag_off", "ttl_hlim", "dscp", "dport"]
+        
+        for c in num_cols:
+            _df[c] = _pd.to_numeric(_df.get(c), errors="coerce").fillna(0).astype(int)
+
+        _df["tcp_flags"] = _df.get("tcp_flags").fillna("").astype(str)
+
         ip_scores = []
         risk_scores = []
         labels = []
@@ -669,7 +676,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-l", "--list", action="store_true")
     ap.add_argument("-i", "--iface",  default=DEFAULT_IFACE)
-    ap.add_argument("-f", "--bpf", default="ip and tcp and (port 22 or port 80 or port 443 or port 445)")
+    ap.add_argument("-f", "--bpf", default="icmp or (ip and tcp and (port 22 or port 80 or port 443 or port 445))")
     ap.add_argument("-o", "--outfile", default="capture_live.pcap")
     ap.add_argument("--log", default="capture_live.txt")
     ap.add_argument("--features-csv", default="features.csv", help="CSV feature output")
