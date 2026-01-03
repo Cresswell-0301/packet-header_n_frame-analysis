@@ -16,6 +16,9 @@ try:
 except Exception:
     get_windows_if_list = None
 
+from joblib import load
+import numpy as np
+
 DEFAULT_IFACE = None
 
 def safe_get(p, layer):
@@ -579,20 +582,11 @@ def _risk_from_ip_score(ip_score):
     # treat ip_score as base; cap 100
     return max(0, min(100, int(ip_score)))
 
-def _label_from_scores(ip_score):
-    if ip_score >= 70: 
-        return "attack"
-    
-    if ip_score >= 40: 
-        return "tampered"
-    
-    return "benign"
-
 def score_packet(args):
     scores_out = "scores.csv"
 
     try:
-        _df = _pd.read_csv(args.features_csv)
+        _df = _pd.read_csv(args.scores_csv)
 
         num_cols = ["ipv4_checksum_ok", "l4_checksum_ok", "ip_flags_mf", "ip_frag_off", "ttl_hlim", "dscp", "dport"]
         
@@ -603,16 +597,13 @@ def score_packet(args):
 
         ip_scores = []
         risk_scores = []
-        labels = []
 
         for _, r in _df.iterrows():
             s = _heuristic_ip_score(r)
             ip_scores.append(s)
             rs = _risk_from_ip_score(s)
             risk_scores.append(rs)
-            labels.append(_label_from_scores(s))
 
-        _df["label"] = labels
         _df["ip_score"] = ip_scores
         _df["risk_score"] = risk_scores
 
@@ -620,10 +611,10 @@ def score_packet(args):
         final_cols = list(_df.columns)
 
         # new columns are moved to the tail in exact order
-        for c in ("label", "ip_score", "risk_score"):
+        for c in ("ip_score", "risk_score"):
             final_cols.remove(c)
 
-        final_cols = final_cols + ["label", "ip_score", "risk_score"]
+        final_cols = final_cols + ["ip_score", "risk_score"]
 
         _df.to_csv(scores_out, index=False, columns=final_cols)
         
@@ -633,6 +624,64 @@ def score_packet(args):
             print(f"\nFailed to write {scores_out}: {e}")
 
     return None
+
+def run_ml_detection(model_path, input_csv, output_csv):
+    try:
+        print("\nRunning ML detection...\n")
+
+        # Load trained model bundle
+        bundle = load(model_path)
+        model = bundle["model"]
+        features = bundle["features"]
+
+        # Load scored packets
+        df = _pd.read_csv(input_csv)
+        df = expand_tcp_flags(df)
+
+        # Ensure all required features exist
+        for f in features:
+            if f not in df.columns:
+                df[f] = 0
+
+        # Align feature matrix
+        X = df[features].astype(np.float32)
+
+        proba = model.predict_proba(X)
+        confidences = proba.max(axis=1)
+        
+        df["label"] = [
+            apply_confidence_policy(c) for c in confidences
+        ]
+        
+        df.to_csv(output_csv, index=False)
+        
+        print(f"ML detection written   : {output_csv}")
+        print(df["label"].value_counts())
+
+    except Exception as e:
+        print(f"[ML detection failed] {e}")
+
+    return output_csv
+
+def expand_tcp_flags(df):
+    flags = df.get("tcp_flags", "").fillna("").astype(str).str.upper()
+
+    df["tcp_flag_SYN"] = flags.str.contains("S").astype(int)
+    df["tcp_flag_ACK"] = flags.str.contains("A").astype(int)
+    df["tcp_flag_FIN"] = flags.str.contains("F").astype(int)
+    df["tcp_flag_RST"] = flags.str.contains("R").astype(int)
+    df["tcp_flag_PSH"] = flags.str.contains("P").astype(int)
+    df["tcp_flag_URG"] = flags.str.contains("U").astype(int)
+
+    return df
+
+def apply_confidence_policy(conf):
+    if conf >= 0.90:
+        return "attack"
+    elif conf >= 0.60:
+        return "tampered"
+    else:
+        return "benign"
 
 EXCLUDE_KEYWORDS = (
     "loopback", "wan miniport", "virtual", "vmware", "hyper-v",
@@ -856,7 +905,13 @@ def main():
 
         if args.features_parquet:
             print(f"Parquet written       : {args.features_parquet}")
-        
+
+        args.scores_csv = run_ml_detection(
+            model_path="rf_model.joblib",
+            input_csv="features.csv",
+            output_csv="scores.csv"
+        )
+
         print("\nScoring packets...\n")
 
         score_packet(args)
