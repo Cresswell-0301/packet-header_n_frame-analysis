@@ -907,7 +907,7 @@ def main():
             print(f"Parquet written       : {args.features_parquet}")
 
         args.scores_csv = run_ml_detection(
-            model_path="rf_model.joblib",
+            model_path="./random_forest/rf_model.joblib",
             input_csv="features.csv",
             output_csv="scores.csv"
         )
