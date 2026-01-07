@@ -142,7 +142,7 @@ def _prep_chunk(df: pd.DataFrame, label_col: str | None) -> pd.DataFrame:
 
     return df[final_cols]
 
-def iter_dataset(folder: str, pattern: str = "*.csv", chunksize: int = 200_000, rows_per_file: int = 0):
+def iter_dataset(folder: str, pattern: str = "*.csv", chunksize: int = 200000, rows_per_file: int = 0):
     files = sorted(glob.glob(os.path.join(folder, pattern), recursive=True))
 
     if not files:
@@ -192,7 +192,7 @@ def main():
     n_files = 0
 
     # Stream and accumulate
-    for f, chunk in iter_dataset(args.data_dir, pattern=args.pattern, chunksize=200_000, rows_per_file=args.rows_per_file):
+    for f, chunk in iter_dataset(args.data_dir, pattern=args.pattern, chunksize=200000, rows_per_file=args.rows_per_file):
         n_files += 1
         df = _prep_chunk(chunk, label_col=args.label_col)
 
