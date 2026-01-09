@@ -1,10 +1,7 @@
-# Random Forest
-
 import os, glob, argparse, math, json
 import joblib
 import numpy as np
 import pandas as pd
-from typing import Iterator, Tuple
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.ensemble import RandomForestClassifier
@@ -175,24 +172,24 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default="cleaned_dataset", help="Folder containing training CSVs")
     ap.add_argument("--pattern", default="*.csv", help="Glob pattern to match files")
-    ap.add_argument("--model-out", default="rf_model.joblib", help="Output path for trained model")
-    ap.add_argument("--meta-out", default="rf_model_meta.json", help="Where to store simple metadata")
-    ap.add_argument("--max-rows", type=int, default=999999999, help="Cap total rows kept in RAM")
-    ap.add_argument("--per-chunk-sample", type=float, default=0.50, help="Fraction per chunk (0<p<=1)")
+    ap.add_argument("--model-out", default="random_forest/rf_model.joblib", help="Output path for trained model")
+    ap.add_argument("--meta-out", default="random_forest/rf_model_meta.json", help="Where to store simple metadata")
+    ap.add_argument("--max-rows", type=int, default=300000, help="Cap total rows kept in RAM")
+    ap.add_argument("--per-chunk-sample", type=float, default=0.04, help="Fraction per chunk (0<p<=1)")
     ap.add_argument("--random-state", type=int, default=42)
     ap.add_argument("--n-estimators", type=int, default=200)
     ap.add_argument("--max-depth", type=int, default=20)
     ap.add_argument("--label-col", default="Label", help="Explicit label column name if known (e.g. 'Label')")
-    ap.add_argument("--rows-per-file", type=int, default=0, help="If >0, only read this many rows from each CSV (testing only).")
+    ap.add_argument("--rows-per-file", type=int, default=20000, help="If >0, only read this many rows from each CSV (testing only).")
+    ap.add_argument("--chunksize", type=int, default=200000, help="Number of rows to read per chunk from CSVs")
     args = ap.parse_args()
 
-    rng = np.random.RandomState(args.random_state)
     buf = []
     n_kept = 0
     n_files = 0
 
     # Stream and accumulate
-    for f, chunk in iter_dataset(args.data_dir, pattern=args.pattern, chunksize=200000, rows_per_file=args.rows_per_file):
+    for f, chunk in iter_dataset(args.data_dir, pattern=args.pattern, chunksize=args.chunksize, rows_per_file=args.rows_per_file):
         n_files += 1
         df = _prep_chunk(chunk, label_col=args.label_col)
 
@@ -203,9 +200,10 @@ def main():
         # Optional stratified per-chunk sampling to control memory
         p = args.per_chunk_sample
 
-        if 0 < p < 1.0:
-            df = df.groupby(TARGET, group_keys=False).apply(
-                lambda x: x.sample(frac=p, random_state=rng, replace=False) if len(x) else x
+        if 0 < p < 1.0 and len(df):
+            df = df.groupby(TARGET, group_keys=False).sample(
+                frac=p,
+                random_state=args.random_state
             )
 
         buf.append(df)
@@ -249,6 +247,19 @@ def main():
     
     print("\nConfusion Matrix:\n", confusion_matrix(y_val, y_pred))
     print("\nClassification Report:\n", classification_report(y_val, y_pred, digits=4))
+
+    cm = confusion_matrix(y_val, y_pred)
+    cr = classification_report(y_val, y_pred, digits=4)
+
+    report_file = os.path.join("random_forest", "rf_model_report.txt")
+
+    with open(report_file, "w") as f:
+        f.write("Confusion Matrix:\n")
+        f.write(str(cm))
+        f.write("\n\nClassification Report:\n")
+        f.write(str(cr))
+
+    print(f"Evaluation report saved to {report_file}")
 
     # Save
     joblib.dump({"model": rf, "features": used_features}, args.model_out)
