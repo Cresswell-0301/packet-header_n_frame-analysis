@@ -2,7 +2,6 @@ import os, glob, argparse, math, json
 import joblib
 import numpy as np
 import pandas as pd
-from typing import Iterator
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.pipeline import Pipeline
@@ -119,61 +118,85 @@ def _prep_chunk(df: pd.DataFrame, label_col: str | None) -> pd.DataFrame:
 
     return df[final_cols]
 
-def iter_dataset(folder: str, pattern: str, chunksize: int):
+def iter_files(folder: str, pattern: str):
     files = sorted(glob.glob(os.path.join(folder, pattern), recursive=True))
 
     if not files:
         print(f"[warn] No files matched: {os.path.join(folder, pattern)}")
-        return
-    
+        return []
+
     print(f"[info] Matched {len(files)} CSV files")
+    return files
 
-    for f in files:
-        print(f"\n[file] {f}")
-
-        for chunk_i, chunk in enumerate(pd.read_csv(f, chunksize=chunksize, low_memory=False), 1):
-            print(f"  [chunk] {chunk_i} rows={len(chunk):,}")
-
-            yield f, chunk
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default="cleaned_dataset")
     ap.add_argument("--pattern", default="*.csv")
-    ap.add_argument("--model-out", default="svm_model.joblib")
-    ap.add_argument("--meta-out", default="svm_model_meta.json")
-    ap.add_argument("--max-rows", type=int, default=999999999, help="SVM: keep this smaller than RF")
-    ap.add_argument("--per-chunk-sample", type=float, default=0.50)
+    ap.add_argument("--model-out", default="support_vector_machine/svm_model.joblib")
+    ap.add_argument("--meta-out", default="support_vector_machine/svm_model_meta.json")
+    ap.add_argument("--max-rows", type=int, default=300000, help="SVM: keep this smaller than RF")
+    ap.add_argument("--per-chunk-sample", type=float, default=0.04)
     ap.add_argument("--random-state", type=int, default=42)
     ap.add_argument("--label-col", default="Label")
     ap.add_argument("--chunksize", type=int, default=200000)
     ap.add_argument("--C", type=float, default=1.0)
     ap.add_argument("--calib-method", default="sigmoid", choices=["sigmoid","isotonic"])
+    ap.add_argument("--rows-per-file", type=int, default=20000, help="If >0, cap number of kept rows contributed by each CSV.")
     args = ap.parse_args()
-
-    rng = np.random.RandomState(args.random_state)
+    
     buf, n_kept = [], 0
 
-    for f, chunk in iter_dataset(args.data_dir, args.pattern, args.chunksize):
-        df = _prep_chunk(chunk, label_col=args.label_col)
+    files = iter_files(args.data_dir, args.pattern)
+    if not files:
+        return
 
-        p = args.per_chunk_sample
+    for f in files:
+        print(f"\n[file] {f}")
+        kept_in_file = 0
 
-        if 0 < p < 1.0 and len(df):
-            df = df.groupby(TARGET, group_keys=False).sample(
-                frac=p,
-                random_state=args.random_state
-            )
+        for chunk_i, chunk in enumerate(pd.read_csv(f, chunksize=args.chunksize, low_memory=False), 1):
+            print(f"  [chunk] {chunk_i} rows={len(chunk):,}")
 
-        assert TARGET in df.columns, f"label dropped! cols={df.columns.tolist()}"
+            # stop reading this file once rows-per-file reached
+            if args.rows_per_file > 0 and kept_in_file >= args.rows_per_file:
+                print(f"  [file-cap] reached rows-per-file={args.rows_per_file:,}, skipping rest of file.")
+                break
 
-        buf.append(df)
-        n_kept += len(df)
+            df = _prep_chunk(chunk, label_col=args.label_col)
 
-        print(f"[load] +{len(df):,} rows  total={n_kept:,}")
+            p = args.per_chunk_sample
+            if 0 < p < 1.0 and len(df):
+                df = df.groupby(TARGET, group_keys=False).sample(
+                    frac=p,
+                    random_state=args.random_state
+                )
+
+            # apply per-file cap by trimming df
+            if args.rows_per_file > 0:
+                remaining = args.rows_per_file - kept_in_file
+                if remaining <= 0:
+                    print(f"  [file-cap] reached rows-per-file={args.rows_per_file:,}, skipping rest of file.")
+                    break
+                if len(df) > remaining:
+                    df = df.sample(n=remaining, random_state=args.random_state)
+
+            if len(df) == 0:
+                continue
+
+            assert TARGET in df.columns, f"label dropped! cols={df.columns.tolist()}"
+
+            buf.append(df)
+            kept_in_file += len(df)
+            n_kept += len(df)
+
+            print(f"[load] +{len(df):,} rows  total={n_kept:,}  file_kept={kept_in_file:,}")
+
+            if n_kept >= args.max_rows:
+                print(f"[cap] Reached max-rows={args.max_rows:,}, stopping load.")
+                break
 
         if n_kept >= args.max_rows:
-            print(f"[cap] Reached max-rows={args.max_rows:,}, stopping load.")
             break
 
     if not buf:
@@ -206,6 +229,18 @@ def main():
 
     print("\nConfusion Matrix:\n", confusion_matrix(y_val, y_pred, labels=["attack","benign","tampered"]))
     print(classification_report(y_val, y_pred, digits=4, zero_division=0))
+
+    cm = confusion_matrix(y_val, y_pred, labels=["attack","benign","tampered"])
+    cr = classification_report(y_val, y_pred, digits=4, zero_division=0)
+
+    report_file = "support_vector_machine/svm_model_report.txt"
+    with open(report_file, "w") as f:
+        f.write("Confusion Matrix:\n")
+        f.write(str(cm))
+        f.write("\n\nClassification Report:\n")
+        f.write(str(cr))
+    
+    print(f"Evaluation report saved to {report_file}")
 
     joblib.dump({"model": clf, "features": used_features}, args.model_out)
     print(f"\nSaved model -> {args.model_out}")
