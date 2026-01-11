@@ -1,4 +1,4 @@
-import os, glob, argparse, math, json
+import os, glob, argparse, math, json, sys
 import joblib
 import numpy as np
 import pandas as pd
@@ -8,6 +8,11 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC
 from sklearn.calibration import CalibratedClassifierCV
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from common_args import add_common_args
+from config import MODEL_DEFAULTS
 
 FEATURES = [
     "len_bytes","vlan_id","vlan_prio",
@@ -128,22 +133,21 @@ def iter_files(folder: str, pattern: str):
     print(f"[info] Matched {len(files)} CSV files")
     return files
 
+def build_args():
+    ap = argparse.ArgumentParser()
+
+    add_common_args(ap)
+
+    d = MODEL_DEFAULTS["svm"]
+    ap.add_argument("--model-out", default=d["model_out"])
+    ap.add_argument("--meta-out", default=d["meta_out"])
+    ap.add_argument("--C", type=float, default=d["C"])
+    ap.add_argument("--calib-method", default=d["calib_method"], choices=["sigmoid", "isotonic"])
+
+    return ap.parse_args()
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--data-dir", default="cleaned_dataset")
-    ap.add_argument("--pattern", default="*.csv")
-    ap.add_argument("--model-out", default="support_vector_machine/svm_model.joblib")
-    ap.add_argument("--meta-out", default="support_vector_machine/svm_model_meta.json")
-    ap.add_argument("--max-rows", type=int, default=300000, help="SVM: keep this smaller than RF")
-    ap.add_argument("--per-chunk-sample", type=float, default=0.04)
-    ap.add_argument("--random-state", type=int, default=42)
-    ap.add_argument("--label-col", default="Label")
-    ap.add_argument("--chunksize", type=int, default=200000)
-    ap.add_argument("--C", type=float, default=1.0)
-    ap.add_argument("--calib-method", default="sigmoid", choices=["sigmoid","isotonic"])
-    ap.add_argument("--rows-per-file", type=int, default=20000, help="If >0, cap number of kept rows contributed by each CSV.")
-    args = ap.parse_args()
+    args = build_args()
     
     buf, n_kept = [], 0
 

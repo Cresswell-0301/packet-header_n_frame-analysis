@@ -1,10 +1,15 @@
-import os, glob, argparse, math, json
+import os, glob, argparse, math, json, sys
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.tree import DecisionTreeClassifier
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from common_args import add_common_args
+from config import MODEL_DEFAULTS
 
 FEATURES = [
     "len_bytes","vlan_id","vlan_prio",
@@ -107,27 +112,24 @@ def iter_dataset(folder: str, pattern: str, chunksize: int):
             print(f"  [chunk] {i} rows={len(chunk):,}")
             yield f, chunk
 
-def main():
+def build_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data-dir", default="cleaned_dataset")
-    ap.add_argument("--pattern", default="*.csv")
-    ap.add_argument("--model-out", default="decision_tree/dt_model.joblib")
-    ap.add_argument("--meta-out", default="decision_tree/dt_model_meta.json")
 
-    ap.add_argument("--label-col", default="Label")
-    ap.add_argument("--chunksize", type=int, default=200000)
-    ap.add_argument("--max-rows", type=int, default=300000)
-    ap.add_argument("--per-chunk-sample", type=float, default=0.04)
-    ap.add_argument("--random-state", type=int, default=42)
-    ap.add_argument("--rows-per-file", type=int, default=20000, help="If >0, cap number of kept rows contributed by each CSV.")
+    add_common_args(ap)
 
-    # DT params
-    ap.add_argument("--max-depth", type=int, default=20)
-    ap.add_argument("--min-samples-split", type=int, default=10)
-    ap.add_argument("--min-samples-leaf", type=int, default=10)
-    ap.add_argument("--criterion", default="gini", choices=["gini","entropy","log_loss"])
+    d = MODEL_DEFAULTS["dt"]
+    ap.add_argument("--model-out", default=d["model_out"])
+    ap.add_argument("--meta-out", default=d["meta_out"])
 
-    args = ap.parse_args()
+    ap.add_argument("--max-depth", type=int, default=d["max_depth"])
+    ap.add_argument("--min-samples-split", type=int, default=d["min_samples_split"])
+    ap.add_argument("--min-samples-leaf", type=int, default=d["min_samples_leaf"])
+    ap.add_argument("--criterion", default=d["criterion"], choices=["gini", "entropy", "log_loss"])
+
+    return ap.parse_args()
+
+def main():
+    args = build_args()
 
     buf, n_kept = [], 0
 

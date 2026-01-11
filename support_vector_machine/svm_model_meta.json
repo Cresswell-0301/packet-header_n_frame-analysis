@@ -45,6 +45,6 @@
     "method": "sigmoid",
     "cv": 3
   },
-  "max_rows": 999999999,
-  "per_chunk_sample": 0.5
+  "max_rows": 1500000,
+  "per_chunk_sample": 0.15
 }

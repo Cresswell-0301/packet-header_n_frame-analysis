@@ -1,10 +1,15 @@
-import os, glob, argparse, math, json
+import os, glob, argparse, math, json, sys
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.ensemble import RandomForestClassifier
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from common_args import add_common_args
+from config import MODEL_DEFAULTS
 
 FEATURES = [
     "len_bytes","vlan_id","vlan_prio",
@@ -139,79 +144,101 @@ def _prep_chunk(df: pd.DataFrame, label_col: str | None) -> pd.DataFrame:
 
     return df[final_cols]
 
-def iter_dataset(folder: str, pattern: str = "*.csv", chunksize: int = 200000, rows_per_file: int = 0):
+def list_files(folder: str, pattern: str="*.csv"):
     files = sorted(glob.glob(os.path.join(folder, pattern), recursive=True))
 
     if not files:
         print(f"[warn] No files matched: {os.path.join(folder, pattern)}")
-        return
-
+        return []
+    
     print(f"[info] Matched {len(files)} CSV files:")
 
     for i, f in enumerate(files, 1):
         print(f"  {i:03d}: {f}")
 
-    for f in files:
-        print(f"\n[file] {f}")
+    return files
 
-        try:
-            if rows_per_file and rows_per_file > 0:
-                df = pd.read_csv(f, nrows=rows_per_file, low_memory=False)
-                print(f"  [rows] {len(df):,}")
+def build_args():
+    ap = argparse.ArgumentParser()
 
-                yield f, df
-            else:
-                for chunk_i, chunk in enumerate(pd.read_csv(f, chunksize=chunksize, low_memory=False), 1):
-                    print(f"  [chunk] {chunk_i} rows={len(chunk):,}")
+    add_common_args(ap)
 
-                    yield f, chunk
-        except Exception as e:
-            print(f"[skip] {f}: {e}")
+    d = MODEL_DEFAULTS["rf"]
+
+    ap.add_argument("--model-out", default=d["model_out"])
+    ap.add_argument("--meta-out", default=d["meta_out"])
+    ap.add_argument("--n-estimators", type=int, default=d["n_estimators"])
+    ap.add_argument("--max-depth", type=int, default=d["max_depth"])
+
+    return ap.parse_args()
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--data-dir", default="cleaned_dataset", help="Folder containing training CSVs")
-    ap.add_argument("--pattern", default="*.csv", help="Glob pattern to match files")
-    ap.add_argument("--model-out", default="random_forest/rf_model.joblib", help="Output path for trained model")
-    ap.add_argument("--meta-out", default="random_forest/rf_model_meta.json", help="Where to store simple metadata")
-    ap.add_argument("--max-rows", type=int, default=300000, help="Cap total rows kept in RAM")
-    ap.add_argument("--per-chunk-sample", type=float, default=0.04, help="Fraction per chunk (0<p<=1)")
-    ap.add_argument("--random-state", type=int, default=42)
-    ap.add_argument("--n-estimators", type=int, default=200)
-    ap.add_argument("--max-depth", type=int, default=20)
-    ap.add_argument("--label-col", default="Label", help="Explicit label column name if known (e.g. 'Label')")
-    ap.add_argument("--rows-per-file", type=int, default=20000, help="If >0, only read this many rows from each CSV (testing only).")
-    ap.add_argument("--chunksize", type=int, default=200000, help="Number of rows to read per chunk from CSVs")
-    args = ap.parse_args()
+    args = build_args()
 
     buf = []
     n_kept = 0
     n_files = 0
 
-    # Stream and accumulate
-    for f, chunk in iter_dataset(args.data_dir, pattern=args.pattern, chunksize=args.chunksize, rows_per_file=args.rows_per_file):
+    files = list_files(args.data_dir, args.pattern)
+
+    if not files:
+        return
+
+    for f in files:
         n_files += 1
-        df = _prep_chunk(chunk, label_col=args.label_col)
+        kept_in_file = 0
 
-        if TARGET not in df.columns:
-            print(f"[warn] {f} missing '{TARGET}', skipping")
-            continue
+        print(f"\n[file] {f}")
 
-        # Optional stratified per-chunk sampling to control memory
-        p = args.per_chunk_sample
+        for chunk_i, chunk in enumerate(
+            pd.read_csv(f, chunksize=args.chunksize, low_memory=False), 1
+        ):
+            print(f"  [chunk] {chunk_i} rows={len(chunk):,}")
 
-        if 0 < p < 1.0 and len(df):
-            df = df.groupby(TARGET, group_keys=False).sample(
-                frac=p,
-                random_state=args.random_state
+            # stop reading this file once we kept enough rows from it
+            if args.rows_per_file > 0 and kept_in_file >= args.rows_per_file:
+                print(f"  [file-cap] reached rows-per-file={args.rows_per_file:,}, stop reading rest of file.")
+                break
+
+            df = _prep_chunk(chunk, label_col=args.label_col)
+
+            if TARGET not in df.columns:
+                print(f"[warn] {f} missing '{TARGET}', skipping chunk")
+                continue
+
+            # stratified sampling
+            p = args.per_chunk_sample
+            if 0 < p < 1.0 and len(df):
+                df = df.groupby(TARGET, group_keys=False).sample(
+                    frac=p,
+                    random_state=args.random_state
+                )
+
+            # enforce per-file KEPT cap after filtering/sampling
+            if args.rows_per_file > 0:
+                remaining = args.rows_per_file - kept_in_file
+                if remaining <= 0:
+                    print(f"  [file-cap] reached rows-per-file={args.rows_per_file:,}, stop reading rest of file.")
+                    break
+                if len(df) > remaining:
+                    df = df.sample(n=remaining, random_state=args.random_state)
+
+            if len(df) == 0:
+                continue
+
+            buf.append(df)
+            kept_in_file += len(df)
+            n_kept += len(df)
+
+            print(
+                f"[load] {os.path.basename(f)}  +{len(df):,} rows  file_kept={kept_in_file:,}"
             )
 
-        buf.append(df)
-        n_kept += len(df)
-        print(f"[load] {os.path.basename(f)}  +{len(df):,} rows  total={n_kept:,}")
+            if n_kept >= args.max_rows:
+                print(f"[cap] Reached max-rows={args.max_rows:,}, stopping load.")
+                break
 
         if n_kept >= args.max_rows:
-            print(f"[cap] Reached max-rows={args.max_rows:,}, stopping load.")
             break
 
     if not buf:

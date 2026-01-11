@@ -36,14 +36,15 @@
     "tcp_flag_URG"
   ],
   "target": "label",
-  "params": {
-    "n_estimators": 200,
+  "dt": {
+    "criterion": "gini",
     "max_depth": 20,
-    "class_weight": "balanced_subsample",
-    "random_state": 42
+    "min_samples_split": 10,
+    "min_samples_leaf": 10,
+    "class_weight": "balanced"
   },
-  "data_dir": "cleaned_dataset",
-  "pattern": "*.csv",
   "max_rows": 1500000,
-  "per_chunk_sample": 0.15
+  "per_chunk_sample": 0.15,
+  "data_dir": "cleaned_dataset",
+  "pattern": "*.csv"
 }

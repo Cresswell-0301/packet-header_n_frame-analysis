@@ -1,4 +1,4 @@
-import os, glob, argparse, math, json
+import os, glob, argparse, math, json, sys
 import joblib
 import numpy as np
 import pandas as pd
@@ -7,6 +7,11 @@ from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from common_args import add_common_args
+from config import MODEL_DEFAULTS
 
 FEATURES = [
     "len_bytes","vlan_id","vlan_prio",
@@ -129,26 +134,24 @@ def _prep_chunk(df: pd.DataFrame, label_col: str | None) -> pd.DataFrame:
     final_cols = [c for c in FEATURES if c in df.columns] + [TARGET]
     return df[final_cols]
 
-def main():
+def build_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data-dir", default="cleaned_dataset")
-    ap.add_argument("--pattern", default="*.csv")
-    ap.add_argument("--model-out", default="k_nearest_neighbors/knn_model.joblib")
-    ap.add_argument("--meta-out", default="k_nearest_neighbors/knn_model_meta.json")
-    ap.add_argument("--label-col", default="Label")
-    ap.add_argument("--chunksize", type=int, default=200000)
-    ap.add_argument("--max-rows", type=int, default=300000, help="KNN is heavy; keep this smaller.")
-    ap.add_argument("--per-chunk-sample", type=float, default=0.04)
-    ap.add_argument("--random-state", type=int, default=42)
-    ap.add_argument("--rows-per-file", type=int, default=20000, help="If >0, cap number of kept rows contributed by each CSV.")
 
-    # KNN params
-    ap.add_argument("--k", type=int, default=25)
-    ap.add_argument("--weights", default="distance", choices=["uniform","distance"])
-    ap.add_argument("--metric", default="minkowski")
-    ap.add_argument("--p", type=int, default=2)
+    add_common_args(ap)
 
-    args = ap.parse_args()
+    d = MODEL_DEFAULTS["knn"]
+    ap.add_argument("--model-out", default=d["model_out"])
+    ap.add_argument("--meta-out", default=d["meta_out"])
+
+    ap.add_argument("--k", type=int, default=d["k"])
+    ap.add_argument("--weights", default=d["weights"], choices=["uniform", "distance"])
+    ap.add_argument("--metric", default=d["metric"])
+    ap.add_argument("--p", type=int, default=d["p"])
+
+    return ap.parse_args()
+
+def main():
+    args = build_args()
 
     buf, n_kept = [], 0
 
