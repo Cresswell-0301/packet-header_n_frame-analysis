@@ -1,5 +1,5 @@
-import argparse, time, struct, os, math, csv
-import pandas as _pd
+import argparse, time, struct, os, csv, json, ipaddress
+import pandas as pd
 from collections import defaultdict
 from scapy.all import sniff, PcapWriter, get_if_list, \
     Ether, Dot1Q, \
@@ -18,8 +18,23 @@ except Exception:
 
 from joblib import load
 import numpy as np
+from urllib.parse import urlencode
+from urllib.request import urlopen, Request
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DEFAULT_IFACE = None
+
+SCAMALYTICS_BASE_URL = os.getenv(
+    "SCAMALYTICS_BASE_URL",
+    "https://api13.scamalytics.com/v3"
+)
+SCAMALYTICS_USER = os.getenv("SCAMALYTICS_USER")
+SCAMALYTICS_KEY = os.getenv("SCAMALYTICS_KEY")
+SCAMALYTICS_TIMEOUT = float(os.getenv("SCAMALYTICS_TIMEOUT", "3.0"))
+
+scamalytics_cache = {}
 
 def safe_get(p, layer):
     try: 
@@ -553,9 +568,9 @@ def format_headers(p, n):
     return "\n".join(lines)
 
 
-def _heuristic_ip_score(row):
+def _heuristic_ip_fraud_score(row):
     score = 0
-    
+
     # Header integrity
     if row.get("ipv4_checksum_ok") == 0:
         score += 35
@@ -594,46 +609,163 @@ def _heuristic_ip_score(row):
     return max(0, min(100, score))
 
 
-def _risk_from_ip_score(ip_score):
-    # treat ip_score as base; cap 100
-    return max(0, min(100, int(ip_score)))
+def risk_from_ip_fraud_score(ip_fraud_score):
+    ip_fraud_score = max(0, min(100, int(ip_fraud_score)))
+
+    if ip_fraud_score >= 90:
+        return "very high"
+    elif ip_fraud_score >= 70:
+        return "high"
+    elif ip_fraud_score >= 40:
+        return "medium"
+    else:
+        return "low"
+
+
+def is_public_routable_ip(value):
+    try:
+        ip_obj = ipaddress.ip_address(str(value))
+    except Exception:
+        return False
+
+    return not (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
+    )
+
+
+def scamalytics_lookup(ip_addr, api_user, api_key, timeout=SCAMALYTICS_TIMEOUT):
+    if not api_user or not api_key:
+        return None, "api_missing_heuristic"
+
+    if not ip_addr:
+        return None, "no_ip_heuristic"
+
+    ip_addr = str(ip_addr).strip()
+
+    if not is_public_routable_ip(ip_addr):
+        return None, "private_ip_heuristic"
+
+    cache_key = (ip_addr, api_user)
+
+    if cache_key in scamalytics_cache:
+        cached = scamalytics_cache[cache_key]
+        if cached is None:
+            return None, "api_failed_heuristic"
+        return cached, "public_ip_scamalytics"
+
+    query = urlencode({"key": api_key, "ip": ip_addr})
+    url = f"{SCAMALYTICS_BASE_URL}/{api_user}/?{query}"
+    req = Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "fyp1-scoring/1.0"
+        }
+    )
+
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+    except Exception:
+        scamalytics_cache[cache_key] = None
+        return None, "api_failed_heuristic"
+
+    try:
+        score = int(float(payload.get("score", 0)))
+    except Exception:
+        score = None
+
+    risk = payload.get("risk")
+
+    result = {
+        "ip_fraud_score": score,
+        "risk_level": str(risk).strip().lower() if risk is not None else None,
+        "source": "scamalytics",
+        "raw": payload,
+    }
+
+    scamalytics_cache[cache_key] = result
+
+    return result, "public_ip_scamalytics"
+
+
+def score_row(row, api_user, api_key):
+    for candidate_ip in (row.get("ip_src"), row.get("ip_dst")):
+        lookup, reason = scamalytics_lookup(candidate_ip, api_user, api_key)
+
+        if lookup and lookup.get("ip_fraud_score") is not None:
+            return (
+                lookup["ip_fraud_score"], 
+                (lookup.get("risk_level") or risk_from_ip_fraud_score(lookup["ip_fraud_score"])), 
+                "scamalytics", 
+                reason
+            )
+
+    heuristic_score = _heuristic_ip_fraud_score(row)
+
+    return heuristic_score, risk_from_ip_fraud_score(heuristic_score), "heuristic", "heuristic"
 
 
 def score_packet(args):
     scores_out = "scores.csv"
 
     try:
-        _df = _pd.read_csv(args.scores_csv)
+        df = pd.read_csv(args.scores_csv)
 
         num_cols = ["ipv4_checksum_ok", "l4_checksum_ok", "ip_flags_mf", "ip_frag_off", "ttl_hlim", "dscp", "dport"]
         
         for c in num_cols:
-            _df[c] = _pd.to_numeric(_df.get(c), errors="coerce").fillna(0).astype(int)
+            df[c] = pd.to_numeric(df.get(c), errors="coerce").fillna(0).astype(int)
 
-        _df["tcp_flags"] = _df.get("tcp_flags").fillna("").astype(str)
+        df["tcp_flags"] = df.get("tcp_flags").fillna("").astype(str)
 
-        ip_scores = []
-        risk_scores = []
+        ip_fraud_scores = []
+        risk_levels = []
+        score_sources = []
+        score_reasons = []
 
-        for _, r in _df.iterrows():
-            s = _heuristic_ip_score(r)
-            ip_scores.append(s)
-            rs = _risk_from_ip_score(s)
-            risk_scores.append(rs)
+        api_user = args.scamalytics_user or SCAMALYTICS_USER
+        api_key = args.scamalytics_key or SCAMALYTICS_KEY
 
-        _df["ip_score"] = ip_scores
-        _df["risk_score"] = risk_scores
+        for _, r in df.iterrows():
+            s, rs, source, reason = score_row(r, api_user=api_user, api_key=api_key)
+            ip_fraud_scores.append(s)
+            risk_levels.append(rs)
+            score_sources.append(source)
+            score_reasons.append(reason)
 
-        # add the three columns to the end
-        final_cols = list(_df.columns)
+        df["ip_fraud_score"] = ip_fraud_scores
+        df["ip_fraud_score_display"] = df["ip_fraud_score"].astype(str) + "/100"
+        df["risk_level"] = risk_levels
+        # df["score_source"] = score_sources
+        # df["score_reason"] = score_reasons
 
-        # new columns are moved to the tail in exact order
-        for c in ("ip_score", "risk_score"):
+        # add score columns to the end in exact order
+        final_cols = list(df.columns)
+
+        for c in (
+            "ip_fraud_score", 
+            "ip_fraud_score_display", 
+            "risk_level"
+            # "score_source", 
+            # "score_reason"
+        ):
             final_cols.remove(c)
 
-        final_cols = final_cols + ["ip_score", "risk_score"]
+        final_cols = final_cols + [
+            "ip_fraud_score", 
+            "ip_fraud_score_display", 
+            "risk_level"
+            # "score_source", 
+            # "score_reason"
+            ]
 
-        _df.to_csv(scores_out, index=False, columns=final_cols)
+        df.to_csv(scores_out, index=False, columns=final_cols)
         
         print(f"Scores written         : {scores_out}")
 
@@ -653,7 +785,7 @@ def run_ml_detection(model_path, input_csv, output_csv):
         features = bundle["features"]
 
         # Load scored packets
-        df = _pd.read_csv(input_csv)
+        df = pd.read_csv(input_csv)
         df = expand_tcp_flags(df)
 
         # Ensure all required features exist
@@ -759,6 +891,8 @@ def main():
     ap.add_argument("-t", "--seconds", type=int, default=0)
     ap.add_argument("--include-virtual",  action="store_true", help="Include virtual/WAN/loopback adapters in capture candidates")
     ap.add_argument("--ifaces",  default=None, help="Comma-separated Npcap device names to sniff (overrides auto selection)")
+    ap.add_argument("--scamalytics-user", default=None)
+    ap.add_argument("--scamalytics-key", default=None)
 
     args = ap.parse_args()
 
