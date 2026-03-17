@@ -27,8 +27,10 @@ def safe_get(p, layer):
     except Exception: 
         return None
 
+
 def u16(b, off): 
     return (b[off]<<8) | b[off+1]
+
 
 def ones_comp_sum(data):
     import struct as _s
@@ -43,10 +45,12 @@ def ones_comp_sum(data):
     
     return (~s) & 0xFFFF
 
+
 def ipv4_hdr_checksum_ok(ip):
     hdr = bytes(ip)[:ip.ihl*4]
     hdr = hdr[:10] + b'\x00\x00' + hdr[12:]
     return ones_comp_sum(hdr) == ip.chksum
+
 
 def l4_checksum_ok(pkt):
     ip = safe_get(pkt, IP) or safe_get(pkt, IPv6)
@@ -82,6 +86,7 @@ def l4_checksum_ok(pkt):
     calc = ones_comp_sum(ph + seg)
     return calc == (tcp.chksum if tcp else udp.chksum)
 
+
 def parse_tcp_options(tcp):
     opts = []
 
@@ -97,6 +102,7 @@ def parse_tcp_options(tcp):
             opts.append(("opt_tsecr", v[1]))
 
     return dict(opts)
+
 
 def parse_tls_sni(payload_bytes):
     b = payload_bytes
@@ -168,6 +174,7 @@ def parse_tls_sni(payload_bytes):
     
     return None
 
+
 def parse_http(payload_bytes):
     try:
         head = payload_bytes.split(b"\r\n\r\n",1)[0]
@@ -196,6 +203,7 @@ def parse_http(payload_bytes):
     except Exception:
         pass
     return None, None, None
+
 
 # flow stats store
 flows = defaultdict(lambda: {"pkts": 0, "bytes": 0, "first": None, "last": None, "iat_min": None, "iat_max": None, "iat_sum": 0.0})
@@ -244,6 +252,7 @@ FEATURE_COLS = [
     "flow_pkts", "flow_bytes", "flow_iat_min", "flow_iat_avg", "flow_iat_max",
 ]
 
+
 def five_tuple(pkt):
     if IP in pkt:
         s,d = pkt[IP].src, pkt[IP].dst
@@ -262,6 +271,7 @@ def five_tuple(pkt):
         sp=dp=None
 
     return (s,d,proto,sp,dp)
+
 
 def update_flow_stats(pkt, rawlen):
     global t0
@@ -288,6 +298,7 @@ def update_flow_stats(pkt, rawlen):
         
         f["last"] = ts
 
+
 def flow_stats_for(pkt):
     key = five_tuple(pkt)
     
@@ -305,6 +316,7 @@ def flow_stats_for(pkt):
 
     return (pkts, by, f["iat_min"] or 0.0, iat_avg, f["iat_max"] or 0.0)
 
+
 def time_local(ts, t0, fmt):
     rel = ts - (t0 or ts)
     lt = time.localtime(ts)
@@ -315,6 +327,7 @@ def time_local(ts, t0, fmt):
         return ts_human, rel, ts
     elif fmt == 'csv':
         return ts_human
+
 
 def feature_row(n, pkt, raw):
     # time
@@ -477,6 +490,7 @@ def feature_row(n, pkt, raw):
         "flow_iat_max": f_iat_max
     }
 
+
 # Log text format
 def format_headers(p, n):
     ts_human, rel, ts = time_local(float(getattr(p, "time", time.time())), t0, 'log')
@@ -538,6 +552,7 @@ def format_headers(p, n):
 
     return "\n".join(lines)
 
+
 def _heuristic_ip_score(row):
     score = 0
     
@@ -578,9 +593,11 @@ def _heuristic_ip_score(row):
 
     return max(0, min(100, score))
 
+
 def _risk_from_ip_score(ip_score):
     # treat ip_score as base; cap 100
     return max(0, min(100, int(ip_score)))
+
 
 def score_packet(args):
     scores_out = "scores.csv"
@@ -625,6 +642,7 @@ def score_packet(args):
 
     return None
 
+
 def run_ml_detection(model_path, input_csv, output_csv):
     try:
         print("\nRunning ML detection...\n")
@@ -663,6 +681,7 @@ def run_ml_detection(model_path, input_csv, output_csv):
 
     return output_csv
 
+
 def expand_tcp_flags(df):
     flags = df.get("tcp_flags", "").fillna("").astype(str).str.upper()
 
@@ -675,6 +694,7 @@ def expand_tcp_flags(df):
 
     return df
 
+
 def apply_confidence_policy(conf):
     if conf >= 0.90:
         return "attack"
@@ -683,10 +703,12 @@ def apply_confidence_policy(conf):
     else:
         return "benign"
 
+
 EXCLUDE_KEYWORDS = (
     "loopback", "wan miniport", "virtual", "vmware", "hyper-v",
     "bluetooth", "wi-fi direct", "tunnel", "teredo", "isatap"
 )
+
 
 def good_capture_ifaces(include_virtual=False, verbose=True):
     if get_windows_if_list:
@@ -719,6 +741,7 @@ def good_capture_ifaces(include_virtual=False, verbose=True):
         return fallback
 
     return list(get_if_list() or [])
+
 
 # main
 def main():
@@ -917,6 +940,7 @@ def main():
         score_packet(args)
 
         print("\nExit.")
+
 
 if __name__ == "__main__":
     import struct
