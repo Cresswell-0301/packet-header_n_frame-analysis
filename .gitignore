@@ -5,3 +5,5 @@ __pycache__/
 .venv/
 
 !cleaned_dataset/*.csv
+
+.env
