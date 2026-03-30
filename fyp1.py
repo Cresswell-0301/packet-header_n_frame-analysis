@@ -830,7 +830,7 @@ def expand_tcp_flags(df):
 def apply_confidence_policy(conf):
     if conf >= 0.90:
         return "attack"
-    elif conf >= 0.60:
+    elif conf >= 0.80:
         return "tampered"
     else:
         return "benign"
