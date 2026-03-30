@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>NETRISK Dashboard</title>
+        <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    </head>
+    <body>
+        <div class="layout">
+            <aside class="sidebar">
+                <div class="brand-row">
+                    <div class="close-icon">×</div>
+                    <div class="brand">NETRISK</div>
+                </div>
+
+                <nav class="menu">
+                    <a href="{{ url_for('index') }}" class="menu-item active">
+                        <span>›</span>
+                        <span>Risk Analysis</span>
+                    </a>
+                    <a href="{{ url_for('review_logs') }}" class="menu-item">
+                        <span>›</span>
+                        <span>Review Logs</span>
+                    </a>
+                </nav>
+            </aside>
+
+            <main class="content">
+                <h1>Risk Analysis</h1>
+
+                <section class="input-card">
+                    <form id="capture-form" class="grid-form">
+                        <div class="field-group field-large">
+                            <label for="pcap_file">PCAP *</label>
+                            <input id="pcap_file" name="pcap_file" value="capture_live.pcap" />
+                        </div>
+                        <div class="field-group field-small">
+                            <label for="seconds">Seconds *</label>
+                            <input id="seconds" name="seconds" type="number" min="10" value="10" />
+                        </div>
+                    </form>
+                </section>
+
+                <section class="input-card second-card">
+                    <form id="score-form" class="grid-form">
+                        <div class="field-group field-large">
+                            <label for="features_csv">Features CSV File Name *</label>
+                            <input id="features_csv" name="features_csv" value="features.csv" />
+                        </div>
+                        <div class="field-group field-small">
+                            <label for="scored_csv">Scored CSV File Name *</label>
+                            <input id="scored_csv" name="scored_csv" value="scores.csv" />
+                        </div>
+                    </form>
+                </section>
+
+                <section class="hero-card">
+                    <div class="hero-actions">
+                        <button id="capture-large-btn" class="hero-btn">Start Capture</button>
+                        <button id="reset-btn" class="reset-btn">Reset</button>
+                    </div>
+                </section>
+
+                <section class="status-card">
+                    <div class="status-header">
+                        <h2>Execution Status</h2>
+                        <span id="status-badge" class="badge idle">Idle</span>
+                    </div>
+                    <div id="result-message" class="result-message muted">No process has been run yet.</div>
+                    <div class="console-grid">
+                        <div>
+                            <h3>Standard Output</h3>
+                            <pre id="stdout-box" class="console-box">Waiting for action...</pre>
+                        </div>
+                        <div>
+                            <h3>Standard Error</h3>
+                            <pre id="stderr-box" class="console-box">Waiting for action...</pre>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <script src="{{ url_for('static', filename='app.js') }}"></script>
+    </body>
+</html>
