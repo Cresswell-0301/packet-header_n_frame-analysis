@@ -1,79 +1,187 @@
-# NetRisk — Packet Header & Frame Analyst (Web GUI)
+# NetRisk — Network Traffic Risk Analysis Dashboard
 
-Capture live traffic with Scapy/Npcap. Extract L2–L4 features to `features.csv`. Score risk to `scored.csv`. Operate from a local FastAPI Web GUI.
+A web-based system for **real-time packet capture, feature extraction, and threat classification** using:
+
+- L2–L4 header analysis (Scapy)
+- Machine learning (Random Forest)
+- External threat intelligence (Scamalytics API)
+- Interactive dashboard (FastAPI)
 
 ---
 
-## 1) Folder layout
+## 1) System Overview
+
+Core capabilities:
+
+- Capture live network packets
+- Extract L2–L4 header features
+- Perform ML-based anomaly detection
+- Enrich IP risk using Scamalytics API
+- Display results via web dashboard
+
+---
+
+## 2) Project Structure
+
 ```text
 packet-header_n_frame-analysis/
-├─ app.py                  # FastAPI server + process manager
-├─ main.py                 # Live capture + feature extraction
-├─ templates/
-│  └─ index.html           # Web UI (rename your iindex.html → index.html if needed)
-└─ static/
-   └─ app.js               # optional (can be empty)
+├── app.py                  # FastAPI backend (dashboard controller)
+├── fyp1.py                 # Capture + feature extraction + scoring engine
+├── random_forest/
+│   └── rf_model.joblib     # Trained ML model
+├── templates/
+│   └── index.html          # Dashboard UI
+├── static/
+│   └── app.js              # Frontend logic (optional)
+├── .env                    # API credentials (DO NOT COMMIT)
+└── README.md
+```
 
 ---
 
-## 2) Prereqs
-- Windows 10/11
-- **Npcap** installed with **“WinPcap API-compatible mode”**
-- Python 3.9–3.12
-- Run shell **as Administrator** for live capture
+## 3) Prerequisites
+
+- Windows 10 / 11  
+- **Npcap** (Install with *WinPcap API-compatible mode*)  
+- Python 3.9 – 3.12  
+- Run terminal as **Administrator** (required for packet capture)
 
 ---
 
-## 3) Setup
-# In the project directory
+## 4) Setup
+
+```powershell
 py -m venv .venv
 .\.venv\Scripts\activate
 
 python -m pip install --upgrade pip wheel
-pip install "fastapi==0.115.*" "uvicorn[standard]==0.30.*" "jinja2==3.1.*" "pydantic==2.8.*"
-pip install scapy pandas numpy scikit-learn joblib
+
+pip install fastapi uvicorn jinja2 pydantic
+pip install scapy pandas numpy scikit-learn joblib python-dotenv
+```
 
 ---
 
-## 4) Start the Web GUI
+## 5) Configure Scamalytics API
+
+Create a `.env` file in the root directory:
+
+```env
+SCAMALYTICS_USER=your_user
+SCAMALYTICS_KEY=your_api_key
+SCAMALYTICS_BASE_URL=https://api13.scamalytics.com/v3
+SCAMALYTICS_TIMEOUT=3.0
+```
+⚠️ Do NOT commit .env to GitHub
+
+---
+
+## 6) Run the Web Dashboard
+
 ```powershell
-# from the project root with venv active
 uvicorn app:app --reload
 ```
-Open: http://127.0.0.1:8000
+
+```Open
+http://127.0.0.1:8000
+```
 
 ---
 
-## 5) Use
-1. **Refresh** interfaces. Pick your adapter.
-2. Set **PCAP** path (default `capture_live.pcap`) and **Seconds** (`0` = run until **Stop**).
-3. Click **Start**. Status shows `capturing…`. Logs stream below.
-4. After timeout or **Stop**, status flips to `captured` / `stopped`.
-5. **Score**:
-   - Reads `features.csv`
-   - Writes `scored.csv`
-   - Shows top rows and a download link
+## 7) How to Use
 
-### Outputs
-- `capture_live.pcap` — raw packets  
-- `features.csv` — per-packet features (L2–L4 + simple flow stats)  
-- `scored.csv` — numeric features + `risk_0_100`
+### Step 1 — Start Capture
+
+- Select interface  
+- Set duration (seconds)  
+- Click **Start Capture**
+
+**Output:**
+- `capture_live.pcap`  
+- `features.csv`  
 
 ---
 
-## 6) CLI (optional)
-List interfaces:
+### Step 2 — Run Scoring
+
+Click **Score**
+
+**Pipeline:**
+
+1. Load `features.csv`  
+2. Run ML detection  
+3. Apply risk scoring:
+   - Scamalytics API (public IP)  
+   - Heuristic fallback (private/API fail)  
+
+**Output:**
+- `scores.csv`
+
+---
+
+## 8) Output Files
+
+| File                | Description                        |
+|---------------------|------------------------------------|
+| `capture_live.pcap` | Raw packet capture                 |
+| `features.csv`      | Extracted L2–L4 features           |
+| `scores.csv`        | Final detection + risk scoring     |
+
+---
+
+## 9) Scoring Model
+
+### 1. Machine Learning (RF Model)
+
+Classifies packets into:
+- `attack`  
+- `tampered`  
+- `benign`  
+
+---
+
+### 2. Risk Scoring
+
+**External (Primary)**
+- Scamalytics API  
+- Returns:
+  - `ip_fraud_score` (0–100)  
+  - `risk_level` (low → very high)  
+
+**Internal (Fallback)**  
+Header-based heuristic:
+- checksum errors  
+- fragmentation  
+- abnormal TTL  
+- suspicious TCP flags  
+- DSCP anomalies  
+
+---
+
+### 3. Final Output Columns
+
+| Column                   | Description                         |
+|--------------------------|-------------------------------------|
+| `ip_fraud_score`         | Numeric score (0–100)               |
+| `ip_fraud_score_display` | Formatted score (e.g. 87/100)       |
+| `risk_level`             | low / medium / high / very high     |
+| `label`                  | ML classification                   |
+
+---
+
+## 10) CLI Usage (Optional)
+
+**List interfaces:**
 ```powershell
-python main.py -l
+python fyp1.py -l
 ```
 
-Manual capture (10 seconds):
+**Capture traffic:**
 ```powershell
-python main.py -i \Device\NPF_{YOUR_GUID} -o capture_live.pcap --features-csv features.csv -t 10
+python fyp1.py -t 10
 ```
 
-Default interfaces capture:
+**Custom interface:**
 ```powershell
-python main.py -t {seconds}
+python fyp1.py -i \Device\NPF_{GUID} -t 10
 ```
-
