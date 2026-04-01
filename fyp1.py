@@ -1073,8 +1073,6 @@ def main():
 
         score_packet(args)
 
-        print("\nExit.")
-
 
 if __name__ == "__main__":
     import struct
