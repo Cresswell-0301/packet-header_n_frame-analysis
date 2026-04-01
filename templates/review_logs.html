@@ -74,8 +74,8 @@
                 <section class="review-section panel">
                     <h2>Highest Risk Packets {% if summary.top_records %} (Total: {{ summary.top_records|length }}) {% endif %}</h2>
                     {% if summary.top_records %}
-                    <div class="table-wrap">
-                        <table>
+                    <div class="table-wrap table-wrap-xy">
+                        <table class="full-score-table">
                             <thead>
                                 <tr>
                                     {% for key in summary.top_records[0].keys() %}
@@ -85,6 +85,35 @@
                             </thead>
                             <tbody>
                                 {% for row in summary.top_records %}
+                                <tr>
+                                    {% for value in row.values() %}
+                                    <td>{{ value }}</td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="muted">No scored records available.</div>
+                    {% endif %}
+                </section>
+
+                <section class="review-section panel">
+                    <h2>All Scored Records {% if summary.all_records %}(Total: {{ summary.all_records|length }}){% endif %}</h2>
+
+                    {% if summary.all_records %}
+                    <div class="table-wrap table-wrap-xy">
+                        <table class="full-score-table">
+                            <thead>
+                                <tr>
+                                    {% for key in summary.all_records[0].keys() %}
+                                    <th>{{ key }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in summary.all_records %}
                                 <tr>
                                     {% for value in row.values() %}
                                     <td>{{ value }}</td>

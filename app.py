@@ -68,6 +68,7 @@ def review_logs():
         'risk_levels': {},
         'score_avg': None,
         'top_records': [],
+        'all_records': [],
         'feature_rows': 0,
         'log_preview': ''
     }
@@ -99,6 +100,8 @@ def review_logs():
                     ranked = ranked.sort_values(by='ip_fraud_score_num', ascending=False)
 
                 summary['top_records'] = ranked[columns].head(10).fillna('').to_dict(orient='records')
+            
+            summary['all_records'] = df.fillna('').to_dict(orient='records')
 
         except Exception:
             pass
