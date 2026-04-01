@@ -2,7 +2,7 @@ import argparse, time, struct, os, csv, json, ipaddress
 import pandas as pd
 from collections import defaultdict
 from scapy.all import sniff, PcapWriter, get_if_list, \
-    Ether, Dot1Q, \
+    Ether, Dot1Q, ARP, \
     IP, IPv6, TCP, UDP, Raw
 from scapy.interfaces import resolve_iface
 
@@ -26,10 +26,7 @@ load_dotenv()
 
 DEFAULT_IFACE = None
 
-SCAMALYTICS_BASE_URL = os.getenv(
-    "SCAMALYTICS_BASE_URL",
-    "https://api13.scamalytics.com/v3"
-)
+SCAMALYTICS_BASE_URL = os.getenv("SCAMALYTICS_BASE_URL")
 SCAMALYTICS_USER = os.getenv("SCAMALYTICS_USER")
 SCAMALYTICS_KEY = os.getenv("SCAMALYTICS_KEY")
 SCAMALYTICS_TIMEOUT = float(os.getenv("SCAMALYTICS_TIMEOUT", "3.0"))
@@ -222,6 +219,12 @@ def parse_http(payload_bytes):
 
 # flow stats store
 flows = defaultdict(lambda: {"pkts": 0, "bytes": 0, "first": None, "last": None, "iat_min": None, "iat_max": None, "iat_sum": 0.0})
+
+ip_to_macs = defaultdict(set)
+mac_to_ips = defaultdict(set)
+ip_mac_first_seen = {}
+ip_mac_last_seen = {}
+
 t0 = None
 
 # feature columns
@@ -259,6 +262,12 @@ FEATURE_COLS = [
 
     # Extra
     "ip_ihl_bytes",
+
+# MAC-IP
+    "src_ip_mac_consistent", # 1 = only one MAC seen for this source IP so far , 0 = multiple MACs have claimed this source IP
+    "src_ip_mac_seen_mac_count", # how many distinct MACs have claimed this source IP
+    "src_mac_ip_seen_ip_count", # how many distinct MACs have claimed this source IP
+    "src_mac_ip_spoof_suspect", # binary suspicion flag
 
 # L4
     "l4_proto", "sport", "dport", "tcp_flags", "tcp_win", "tcp_hdr_len", "l4_checksum_ok",
@@ -344,6 +353,51 @@ def time_local(ts, t0, fmt):
         return ts_human
 
 
+def update_mac_ip_consistency(eth_src, ip_src, ts):
+    if not eth_src or not ip_src:
+        return {
+            "src_ip_mac_consistent": None,
+            "src_ip_mac_seen_mac_count": 0,
+            "src_mac_ip_seen_ip_count": 0,
+            "src_mac_ip_spoof_suspect": 0,
+        }
+
+    ip_src = str(ip_src).strip()
+    eth_src = str(eth_src).lower().strip()
+
+    ip_to_macs[ip_src].add(eth_src)
+    mac_to_ips[eth_src].add(ip_src)
+
+    pair_key = (ip_src, eth_src)
+
+    if pair_key not in ip_mac_first_seen:
+        ip_mac_first_seen[pair_key] = ts
+        
+    ip_mac_last_seen[pair_key] = ts
+
+    mac_count_for_ip = len(ip_to_macs[ip_src])
+    ip_count_for_mac = len(mac_to_ips[eth_src])
+
+    if mac_count_for_ip <= 1:
+        consistent = 1
+    else:
+        consistent = 0
+
+    spoof_suspect = 0
+
+    if mac_count_for_ip > 1:
+        spoof_suspect = 1
+    elif ip_count_for_mac > 5:
+        spoof_suspect = 1
+
+    return {
+        "src_ip_mac_consistent": consistent,
+        "src_ip_mac_seen_mac_count": mac_count_for_ip,
+        "src_mac_ip_seen_ip_count": ip_count_for_mac,
+        "src_mac_ip_spoof_suspect": spoof_suspect,
+    }
+
+
 def feature_row(n, pkt, raw):
     # time
     ts = float(getattr(pkt, "time", time.time()))
@@ -370,12 +424,15 @@ def feature_row(n, pkt, raw):
 
     ip_ihl_bytes = ip_total_len = ip_id = ip_proto = ip_hdr_checksum = None
 
+    is_ip_packet = 0
+
     if IP in pkt:
         ip = pkt[IP]
         ip_ver = int(getattr(ip, "version", 4))
         ip_tos = int(getattr(ip, "tos", 0))
         ip_src = ip.src
         ip_dst = ip.dst
+        is_ip_packet = 1
         ttl_hlim = ip.ttl
         dscp = (ip.tos>>2)&0x3F
         ecn = ip.tos&0x3
@@ -400,11 +457,27 @@ def feature_row(n, pkt, raw):
         ip_ver = int(getattr(ip, "version", 6))
         ip_src = ip.src
         ip_dst = ip.dst
+        is_ip_packet = 1
         ttl_hlim = ip.hlim
         dscp = (getattr(ip,"tc",0)>>2)&0x3F
         ecn = getattr(ip,"tc",0)&0x3
         ip_df = ip_mf = ip_frag_off = None
         ip4_ok = None
+
+    # MAC-IP consistency
+    mac_ip_info = {
+        "src_ip_mac_consistent": None,
+        "src_ip_mac_seen_mac_count": 0,
+        "src_mac_ip_seen_ip_count": 0,
+        "src_mac_ip_spoof_suspect": 0,
+    }
+
+    if is_ip_packet and ip_src:
+        mac_ip_info = update_mac_ip_consistency(
+            eth.src if eth else None,
+            ip_src,
+            ts
+        )
 
     # L4
     l4_proto = sport = dport = tcp_flags = tcp_win = tcp_hlen = l4_ok = None
@@ -485,6 +558,12 @@ def feature_row(n, pkt, raw):
         # Extra
         "ip_ihl_bytes": ip_ihl_bytes,
 
+    # MAC-IP
+        "src_ip_mac_consistent": mac_ip_info["src_ip_mac_consistent"],
+        "src_ip_mac_seen_mac_count": mac_ip_info["src_ip_mac_seen_mac_count"],
+        "src_mac_ip_seen_ip_count": mac_ip_info["src_mac_ip_seen_ip_count"],
+        "src_mac_ip_spoof_suspect": mac_ip_info["src_mac_ip_spoof_suspect"],
+
     # L4
         "l4_proto": l4_proto,
 
@@ -519,7 +598,7 @@ def format_headers(p, n):
     while vlan:
         lines.append(f"  VLAN id={vlan.vlan} pri={vlan.prio}")
         vlan = vlan.payload if isinstance(vlan.payload, Dot1Q) else None
-
+    
     ip4 = safe_get(p, IP)
     ip6 = safe_get(p, IPv6)
     
@@ -568,6 +647,47 @@ def format_headers(p, n):
     return "\n".join(lines)
 
 
+def heuristic_score_reason(row):
+    reasons = []
+
+    if row.get("ipv4_checksum_ok") == 0:
+        reasons.append("ipv4_checksum_bad")
+
+    if row.get("l4_checksum_ok") == 0:
+        reasons.append("l4_checksum_bad")
+
+    if (row.get("ip_flags_mf") == 1) or ((row.get("ip_frag_off") or 0) > 0):
+        reasons.append("fragmented_packet")
+
+    if row.get("src_ip_mac_consistent") == 0:
+        reasons.append("src_ip_mac_inconsistent")
+
+    ttl = row.get("ttl_hlim") or 0
+
+    if 0 < ttl < 20:
+        reasons.append("low_ttl")
+
+    flags = (row.get("tcp_flags") or "").upper()
+
+    if "SF" in flags or flags == "":
+        reasons.append("suspicious_tcp_flags")
+
+    dscp = row.get("dscp") or 0
+
+    if dscp not in (0, 8, 16, 24, 32, 46):
+        reasons.append("unusual_dscp")
+
+    dp = row.get("dport")
+
+    if dp in (22, 80, 443, 445):
+        reasons.append("focus_port")
+
+    if not reasons:
+        reasons.append("heuristic_normal")
+
+    return ",".join(reasons)
+
+
 def _heuristic_ip_fraud_score(row):
     score = 0
 
@@ -582,6 +702,9 @@ def _heuristic_ip_fraud_score(row):
     if (row.get("ip_flags_mf") == 1) or (row.get("ip_frag_off", 0) > 0):
         score += 10
 
+    if row.get("src_ip_mac_consistent") == 0:
+        score += 20
+    
     # TTL out-of-typical range (common 32/64/128/255; penalize very low)
     ttl = row.get("ttl_hlim") or 0
 
@@ -653,10 +776,7 @@ def scamalytics_lookup(ip_addr, api_user, api_key, timeout=SCAMALYTICS_TIMEOUT):
     cache_key = (ip_addr, api_user)
 
     if cache_key in scamalytics_cache:
-        cached = scamalytics_cache[cache_key]
-        if cached is None:
-            return None, "api_failed_heuristic"
-        return cached, "public_ip_scamalytics"
+        return scamalytics_cache[cache_key], "public_ip_scamalytics"
 
     query = urlencode({"key": api_key, "ip": ip_addr})
     url = f"{SCAMALYTICS_BASE_URL}/{api_user}/?{query}"
@@ -672,31 +792,35 @@ def scamalytics_lookup(ip_addr, api_user, api_key, timeout=SCAMALYTICS_TIMEOUT):
         with urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
     except Exception:
-        scamalytics_cache[cache_key] = None
         return None, "api_failed_heuristic"
 
+    scam = payload.get("scamalytics", {}) or {}
+
     try:
-        score = int(float(payload.get("score", 0)))
+        score = int(float(scam.get("scamalytics_score", 0)))
     except Exception:
         score = None
 
-    risk = payload.get("risk")
+    risk = scam.get("scamalytics_risk")
 
     result = {
         "ip_fraud_score": score,
         "risk_level": str(risk).strip().lower() if risk is not None else None,
         "source": "scamalytics",
+        "reason": str(risk).strip().lower() if risk is not None else "scamalytics_unknown",
         "raw": payload,
     }
 
     scamalytics_cache[cache_key] = result
 
-    return result, "public_ip_scamalytics"
+    return result, result["reason"]
 
 
 def score_row(row, api_user, api_key):
     for candidate_ip in (row.get("ip_src"), row.get("ip_dst")):
         lookup, reason = scamalytics_lookup(candidate_ip, api_user, api_key)
+
+        # print(f"[DEBUG] ip={candidate_ip} reason={reason} lookup={lookup}")
 
         if lookup and lookup.get("ip_fraud_score") is not None:
             return (
@@ -707,8 +831,14 @@ def score_row(row, api_user, api_key):
             )
 
     heuristic_score = _heuristic_ip_fraud_score(row)
+    heuristic_reason = heuristic_score_reason(row)
 
-    return heuristic_score, risk_from_ip_fraud_score(heuristic_score), "heuristic", "heuristic"
+    return (
+        heuristic_score,
+        risk_from_ip_fraud_score(heuristic_score),
+        "heuristic",
+        heuristic_reason
+    )
 
 
 def score_packet(args):
@@ -742,8 +872,8 @@ def score_packet(args):
         df["ip_fraud_score"] = ip_fraud_scores
         df["ip_fraud_score_display"] = df["ip_fraud_score"].astype(str) + "/100"
         df["risk_level"] = risk_levels
-        # df["score_source"] = score_sources
-        # df["score_reason"] = score_reasons
+        df["risk_score_source"] = score_sources
+        df["risk_score_reason"] = score_reasons
 
         # add score columns to the end in exact order
         final_cols = list(df.columns)
@@ -751,18 +881,18 @@ def score_packet(args):
         for c in (
             "ip_fraud_score", 
             "ip_fraud_score_display", 
-            "risk_level"
-            # "score_source", 
-            # "score_reason"
+            "risk_level",
+            "risk_score_source", 
+            "risk_score_reason"
         ):
             final_cols.remove(c)
 
         final_cols = final_cols + [
             "ip_fraud_score", 
             "ip_fraud_score_display", 
-            "risk_level"
-            # "score_source", 
-            # "score_reason"
+            "risk_level",
+            "risk_score_source", 
+            "risk_score_reason"
             ]
 
         df.to_csv(scores_out, index=False, columns=final_cols)
