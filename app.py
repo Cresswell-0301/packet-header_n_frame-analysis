@@ -85,16 +85,21 @@ def review_logs():
 
             if 'ip_fraud_score' in df.columns:
                 score_series = pd.to_numeric(df['ip_fraud_score'], errors='coerce').dropna()
+
                 if not score_series.empty:
                     summary['score_avg'] = round(float(score_series.mean()), 2)
 
             columns = [c for c in ['frame_no', 'ip_src', 'ip_dst', 'label', 'ip_fraud_score_display', 'risk_level'] if c in df.columns]
+
             if columns:
                 ranked = df.copy()
+
                 if 'ip_fraud_score' in ranked.columns:
                     ranked['ip_fraud_score_num'] = pd.to_numeric(ranked['ip_fraud_score'], errors='coerce').fillna(-1)
                     ranked = ranked.sort_values(by='ip_fraud_score_num', ascending=False)
+
                 summary['top_records'] = ranked[columns].head(10).fillna('').to_dict(orient='records')
+
         except Exception:
             pass
 
