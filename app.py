@@ -19,14 +19,6 @@ MODEL_PATH = DATA_DIR / 'random_forest' / 'rf_model.joblib'
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
 
-def _safe_name(value: str, default: str) -> str:
-    value = (value or '').strip()
-    if not value:
-        return default
-    name = os.path.basename(value)
-    return name or default
-
-
 def _run_command(args: List[str]) -> subprocess.CompletedProcess:
     return subprocess.run(
         args,
@@ -169,10 +161,6 @@ def start_capture():
     if not FYP_SCRIPT.exists():
         return jsonify({'ok': False, 'message': f'fyp1.py not found at {FYP_SCRIPT}'}), 400
 
-    # pcap_name = _safe_name(request.form.get('pcap_file'), 'capture_live.pcap')
-    # features_name = _safe_name(request.form.get('features_csv'), 'features.csv')
-    # flows_csv = _safe_name(request.form.get('flows_csv'), 'flows.csv')
-
     pcap_name = "capture_live.pcap"
     seconds = request.form.get('seconds', '60').strip() or '60'
     features_name = "features.csv"
@@ -220,8 +208,8 @@ def start_capture():
 
 @app.post('/api/score')
 def score_only():
-    features_name = _safe_name(request.form.get('features_csv'), 'features.csv')
-    scored_name = _safe_name(request.form.get('scored_csv'), 'scores.csv')
+    features_name = 'features.csv'
+    scored_name = 'scores.csv'
     source_path = DATA_DIR / features_name
 
     if not source_path.exists():
