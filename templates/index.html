@@ -33,7 +33,7 @@
                     <form id="capture-form" class="grid-form">
                         <div class="field-group field-large">
                             <label for="pcap_file">PCAP *</label>
-                            <input id="pcap_file" name="pcap_file" value="capture_live.pcap" />
+                            <input id="pcap_file" name="pcap_file" value="capture_live.pcap" readonly />
                         </div>
                         <div class="field-group field-small">
                             <label for="seconds">Seconds *</label>
@@ -43,14 +43,20 @@
                 </section>
 
                 <section class="input-card second-card">
-                    <form id="score-form" class="grid-form">
-                        <div class="field-group field-large">
-                            <label for="features_csv">Features CSV File Name *</label>
-                            <input id="features_csv" name="features_csv" value="features.csv" />
+                    <form id="score-form" class="grid-form-3">
+                        <div class="field-group">
+                            <label for="features_csv">Features CSV *</label>
+                            <input id="features_csv" name="features_csv" value="features.csv" readonly />
                         </div>
-                        <div class="field-group field-small">
-                            <label for="scored_csv">Scored CSV File Name *</label>
-                            <input id="scored_csv" name="scored_csv" value="scores.csv" />
+
+                        <div class="field-group">
+                            <label for="flows_csv">Flows CSV *</label>
+                            <input id="flows_csv" name="flows_csv" value="flows.csv" readonly />
+                        </div>
+
+                        <div class="field-group">
+                            <label for="scored_csv">Scored CSV *</label>
+                            <input id="scored_csv" name="scored_csv" value="scores.csv" readonly />
                         </div>
                     </form>
                 </section>

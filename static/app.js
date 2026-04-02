@@ -13,6 +13,7 @@ function resetForm() {
     document.getElementById("seconds").value = "10";
     document.getElementById("features_csv").value = "features.csv";
     document.getElementById("scored_csv").value = "scores.csv";
+    document.getElementById("flows_csv").value = "flows.csv";
 
     // Reset output boxes
     stdoutBox.textContent = "Waiting for action...";
@@ -33,8 +34,12 @@ function setStatus(state, message) {
 }
 
 function setHeroButton(state) {
-    if (state === "running") {
+    if (state === "capturing") {
         captureLargeBtn.textContent = "Capturing";
+        captureLargeBtn.disabled = true;
+        resetBtn.disabled = true;
+    } else if (state === "analyzing") {
+        captureLargeBtn.textContent = "Analyzing";
         captureLargeBtn.disabled = true;
         resetBtn.disabled = true;
     } else if (state === "success") {
@@ -63,7 +68,7 @@ async function runCaptureAndScore() {
     const scoreData = new FormData(scoreForm);
 
     setStatus("running", "Capturing traffic...");
-    setHeroButton("running");
+    setHeroButton("capturing");
     stdoutBox.textContent = "Running capture...";
     stderrBox.textContent = "Running capture...";
 
@@ -82,6 +87,7 @@ async function runCaptureAndScore() {
         }
 
         setStatus("running", "Capture completed. Running scoring...");
+        setHeroButton("analyzing");
         stdoutBox.textContent += "\n\n--- Scoring started ---";
 
         const scoreResult = await postForm("/api/score", scoreData);

@@ -218,7 +218,53 @@ def parse_http(payload_bytes):
 
 
 # flow stats store
-flows = defaultdict(lambda: {"pkts": 0, "bytes": 0, "first": None, "last": None, "iat_min": None, "iat_max": None, "iat_sum": 0.0})
+flows = defaultdict(lambda: {
+    # Basic volume & timing
+    "pkts": 0,
+    "bytes": 0,
+    "first": None,
+    "last": None,
+
+    # Inter arrival time (IAT)
+    "iat_min": None,
+    "iat_max": None,
+    "iat_sum": 0.0,
+
+    # direction counters : Client → Server (forward) ; Server → Client (reverse)
+    "fwd_pkts": 0,
+    "rev_pkts": 0,
+    "fwd_bytes": 0,
+    "rev_bytes": 0,
+
+    # TCP behaviour
+    "syn_count": 0, # connection start
+    "ack_count": 0, # normal traffic
+    "fin_count": 0, # normal close
+    "rst_count": 0, # abnormal reset
+    "psh_count": 0, # data push
+
+    # integrity / anomaly counters
+    "bad_ip_checksum_count": 0, # corrupted / crafted packets
+    "bad_l4_checksum_count": 0, # suspicious or forged traffic
+    "frag_count": 0, # fragmentation attack / evasion
+    "mac_ip_inconsistent_count": 0, # spoofing
+    "low_ttl_count": 0, # scanning / crafted packets
+    "unusual_dscp_count": 0, # covert channel / QoS abuse
+
+    # protocol hints
+    "http_seen": 0, # 80
+    "tls_seen": 0, # 443
+    "dns_seen": 0,
+    "ssh_seen": 0, # 22
+    "smb_seen": 0, # 445
+
+    # ports / endpoints
+    "sport_set": set(),
+    "dport_set": set(),
+
+    # explanation
+    "reasons": set()
+})
 
 ip_to_macs = defaultdict(set)
 mac_to_ips = defaultdict(set)
@@ -272,73 +318,247 @@ FEATURE_COLS = [
 # L4
     "l4_proto", "sport", "dport", "tcp_flags", "tcp_win", "tcp_hdr_len", "l4_checksum_ok",
 
-# Simple Flow
-    "flow_pkts", "flow_bytes", "flow_iat_min", "flow_iat_avg", "flow_iat_max",
+# Flow
+    "flow_pkts",
+    "flow_bytes",
+    "flow_iat_min",
+    "flow_iat_avg",
+    "flow_iat_max",
+
+# Extended Flow
+    "flow_duration",
+    "flow_fwd_pkts",
+    "flow_rev_pkts",
+    "flow_fwd_bytes",
+    "flow_rev_bytes",
+    "flow_syn_count",
+    "flow_ack_count",
+    "flow_fin_count",
+    "flow_rst_count",
+    "flow_psh_count",
+    "flow_bad_ip_checksum_count",
+    "flow_bad_l4_checksum_count",
+    "flow_frag_count",
+    "flow_low_ttl_count",
+    "flow_unusual_dscp_count",
+    "flow_unique_sports",
+    "flow_unique_dports",
+    "flow_protocol_hint",
+    "flow_risk_score",
+    "flow_risk_level",
+    "flow_risk_reason",
 ]
 
 
-def five_tuple(pkt):
+def packet_tuple(pkt):
     if IP in pkt:
-        s,d = pkt[IP].src, pkt[IP].dst
+        s, d = pkt[IP].src, pkt[IP].dst
         proto = pkt[IP].proto
     elif IPv6 in pkt:
-        s,d = pkt[IPv6].src, pkt[IPv6].dst
+        s, d = pkt[IPv6].src, pkt[IPv6].dst
         proto = pkt[IPv6].nh
     else:
         return None
-    
-    if TCP in pkt: 
-        sp,dp = pkt[TCP].sport, pkt[TCP].dport
-    elif UDP in pkt: 
-        sp,dp = pkt[UDP].sport, pkt[UDP].dport
-    else: 
-        sp=dp=None
 
-    return (s,d,proto,sp,dp)
+    if TCP in pkt:
+        sp, dp = pkt[TCP].sport, pkt[TCP].dport
+    elif UDP in pkt:
+        sp, dp = pkt[UDP].sport, pkt[UDP].dport
+    else:
+        return None
+
+    return (s, d, proto, sp, dp)
+
+
+def canonical_flow_key(pkt):
+    t = packet_tuple(pkt)
+
+    if not t:
+        return None
+
+    s, d, proto, sp, dp = t
+
+    if (s, sp) <= (d, dp):
+        return (s, d, proto, sp, dp)
+    else:
+        return (d, s, proto, dp, sp)
+
+
+def packet_direction(pkt, flow_key):
+    t = packet_tuple(pkt)
+
+    if not t or not flow_key:
+        return None
+
+    s, d, proto, sp, dp = t
+    fs, fd, fproto, fsp, fdp = flow_key
+
+    if (s, d, proto, sp, dp) == (fs, fd, fproto, fsp, fdp):
+        return "fwd"
+
+    return "rev"
 
 
 def update_flow_stats(pkt, rawlen):
     global t0
     ts = float(getattr(pkt, "time", time.time()))
 
-    if t0 is None: 
+    if t0 is None:
         t0 = ts
 
-    key = five_tuple(pkt)
-    
-    if key:
-        f = flows[key]
-        f["pkts"] += 1; 
-        f["bytes"] += rawlen
-        
-        if f["first"] is None: 
-            f["first"] = ts
-        
-        if f["last"] is not None:
-            iat = ts - f["last"]
-            f["iat_sum"] = (f["iat_sum"] or 0.0) + iat
-            f["iat_min"] = iat if f["iat_min"] is None else min(f["iat_min"], iat)
-            f["iat_max"] = iat if f["iat_max"] is None else max(f["iat_max"], iat)
-        
-        f["last"] = ts
+    key = canonical_flow_key(pkt)
+
+    if not key:
+        return
+
+    direction = packet_direction(pkt, key)
+    f = flows[key]
+
+    f["pkts"] += 1
+    f["bytes"] += rawlen
+
+    if f["first"] is None:
+        f["first"] = ts
+
+    if f["last"] is not None:
+        iat = ts - f["last"]
+        f["iat_sum"] += iat
+        f["iat_min"] = iat if f["iat_min"] is None else min(f["iat_min"], iat)
+        f["iat_max"] = iat if f["iat_max"] is None else max(f["iat_max"], iat)
+
+    f["last"] = ts
+
+    if direction == "fwd":
+        f["fwd_pkts"] += 1
+        f["fwd_bytes"] += rawlen
+    else:
+        f["rev_pkts"] += 1
+        f["rev_bytes"] += rawlen
+
+    if TCP in pkt:
+        flags = str(pkt[TCP].flags).upper()
+
+        if "S" in flags:
+            f["syn_count"] += 1
+        if "A" in flags:
+            f["ack_count"] += 1
+        if "F" in flags:
+            f["fin_count"] += 1
+        if "R" in flags:
+            f["rst_count"] += 1
+        if "P" in flags:
+            f["psh_count"] += 1
+
+    if TCP in pkt:
+        f["sport_set"].add(int(pkt[TCP].sport))
+        f["dport_set"].add(int(pkt[TCP].dport))
+    elif UDP in pkt:
+        f["sport_set"].add(int(pkt[UDP].sport))
+        f["dport_set"].add(int(pkt[UDP].dport))
+
+    if IP in pkt:
+        try:
+            if not ipv4_hdr_checksum_ok(pkt[IP]):
+                f["bad_ip_checksum_count"] += 1
+        except Exception:
+            pass
+
+        if int(getattr(pkt[IP].flags, "MF", 0)) == 1 or int(pkt[IP].frag) > 0:
+            f["frag_count"] += 1
+            f["reasons"].add("flow_fragmented")
+
+        ttl = int(getattr(pkt[IP], "ttl", 0) or 0)
+
+        if 0 < ttl < 20:
+            f["low_ttl_count"] += 1
+            f["reasons"].add("flow_low_ttl")
+
+        dscp = (int(getattr(pkt[IP], "tos", 0)) >> 2) & 0x3F
+
+        if dscp not in (0, 8, 16, 24, 32, 46):
+            f["unusual_dscp_count"] += 1
+            f["reasons"].add("flow_unusual_dscp")
+
+    try:
+        l4_ok = l4_checksum_ok(pkt)
+
+        if l4_ok is False:
+            count_bad = True
+
+            if TCP in pkt:
+                flags = str(pkt[TCP].flags).upper()
+
+                # ignore pure ACK packets
+                if flags == "A":
+                    count_bad = False
+
+            if count_bad:
+                f["bad_l4_checksum_count"] += 1
+    except Exception:
+        pass
+
+    if TCP in pkt:
+        sport = int(pkt[TCP].sport)
+        dport = int(pkt[TCP].dport)
+
+        if 80 in (sport, dport):
+            f["http_seen"] += 1
+        if 443 in (sport, dport):
+            f["tls_seen"] += 1
+        if 22 in (sport, dport):
+            f["ssh_seen"] += 1
+        if 445 in (sport, dport):
+            f["smb_seen"] += 1
+
+    elif UDP in pkt:
+        sport = int(pkt[UDP].sport)
+        dport = int(pkt[UDP].dport)
+
+        if 53 in (sport, dport):
+            f["dns_seen"] += 1
 
 
 def flow_stats_for(pkt):
-    key = five_tuple(pkt)
-    
-    if not key: 
-        return (0,0,0.0,0.0,0.0)
-    
-    f = flows[key]
-    pkts = f["pkts"]; 
-    by = f["bytes"]
-    
-    if pkts and pkts > 1:
-        iat_avg = (f["iat_sum"] or 0.0) / (pkts - 1)
-    else:
-        iat_avg = 0.0
+    key = canonical_flow_key(pkt)
 
-    return (pkts, by, f["iat_min"] or 0.0, iat_avg, f["iat_max"] or 0.0)
+    if not key:
+        return None
+
+    f = flows[key]
+    pkts = f["pkts"]
+    iat_avg = (f["iat_sum"] / (pkts - 1)) if pkts > 1 else 0.0
+    duration = (f["last"] - f["first"]) if (f["first"] is not None and f["last"] is not None) else 0.0
+
+    return {
+        "pkts": pkts,
+        "bytes": f["bytes"],
+        "iat_min": f["iat_min"] or 0.0,
+        "iat_avg": iat_avg,
+        "iat_max": f["iat_max"] or 0.0,
+        "duration": duration,
+        "fwd_pkts": f["fwd_pkts"],
+        "rev_pkts": f["rev_pkts"],
+        "fwd_bytes": f["fwd_bytes"],
+        "rev_bytes": f["rev_bytes"],
+        "syn_count": f["syn_count"],
+        "ack_count": f["ack_count"],
+        "fin_count": f["fin_count"],
+        "rst_count": f["rst_count"],
+        "psh_count": f["psh_count"],
+        "bad_ip_checksum_count": f["bad_ip_checksum_count"],
+        "bad_l4_checksum_count": f["bad_l4_checksum_count"],
+        "frag_count": f["frag_count"],
+        "low_ttl_count": f["low_ttl_count"],
+        "unusual_dscp_count": f["unusual_dscp_count"],
+        "unique_sports": len(f["sport_set"]),
+        "unique_dports": len(f["dport_set"]),
+        "http_seen": f["http_seen"],
+        "tls_seen": f["tls_seen"],
+        "dns_seen": f["dns_seen"],
+        "ssh_seen": f["ssh_seen"],
+        "smb_seen": f["smb_seen"],
+        "reasons": ",".join(sorted(f["reasons"])) if f["reasons"] else "flow_normal"
+    }
 
 
 def time_local(ts, t0, fmt):
@@ -504,7 +724,42 @@ def feature_row(n, pkt, raw):
         l4_ok = None
     
     # flow stats (after update_flow_stats was called)
-    f_pkts, f_bytes, f_iat_min, f_iat_avg, f_iat_max = flow_stats_for(pkt)
+    flow = flow_stats_for(pkt)
+
+    if flow is None:
+        flow = {
+            "pkts": 0, 
+            "bytes": 0, 
+            "iat_min": 0.0, 
+            "iat_avg": 0.0, 
+            "iat_max": 0.0,
+            "duration": 0.0, 
+            "fwd_pkts": 0, 
+            "rev_pkts": 0, 
+            "fwd_bytes": 0, 
+            "rev_bytes": 0,
+            "syn_count": 0, 
+            "ack_count": 0, 
+            "fin_count": 0, 
+            "rst_count": 0, 
+            "psh_count": 0,
+            "bad_ip_checksum_count": 0, 
+            "bad_l4_checksum_count": 0, 
+            "frag_count": 0,
+            "low_ttl_count": 0, 
+            "unusual_dscp_count": 0,
+            "unique_sports": 0, 
+            "unique_dports": 0,
+            "http_seen": 0, 
+            "tls_seen": 0, 
+            "dns_seen": 0, 
+            "ssh_seen": 0, 
+            "smb_seen": 0,
+            "reasons": "flow_normal"
+        }
+
+    flow_protocol_hint = detect_flow_protocol_hint(flow)
+    flow_risk_score, flow_risk_level, flow_risk_reason = score_flow_behavior(flow)
     
     ts_human = time_local(float(getattr(pkt, "time", time.time())), t0, 'csv')
 
@@ -576,12 +831,34 @@ def feature_row(n, pkt, raw):
 
         "l4_checksum_ok": l4_ok,
 
-    # Simple Flow
-        "flow_pkts": f_pkts, 
-        "flow_bytes": f_bytes, 
-        "flow_iat_min": f_iat_min, 
-        "flow_iat_avg": f_iat_avg, 
-        "flow_iat_max": f_iat_max
+    # Flow Stats
+        "flow_pkts": flow["pkts"],
+        "flow_bytes": flow["bytes"],
+        "flow_iat_min": flow["iat_min"],
+        "flow_iat_avg": flow["iat_avg"],
+        "flow_iat_max": flow["iat_max"],
+
+        "flow_duration": flow["duration"],
+        "flow_fwd_pkts": flow["fwd_pkts"],
+        "flow_rev_pkts": flow["rev_pkts"],
+        "flow_fwd_bytes": flow["fwd_bytes"],
+        "flow_rev_bytes": flow["rev_bytes"],
+        "flow_syn_count": flow["syn_count"],
+        "flow_ack_count": flow["ack_count"],
+        "flow_fin_count": flow["fin_count"],
+        "flow_rst_count": flow["rst_count"],
+        "flow_psh_count": flow["psh_count"],
+        "flow_bad_ip_checksum_count": flow["bad_ip_checksum_count"],
+        "flow_bad_l4_checksum_count": flow["bad_l4_checksum_count"],
+        "flow_frag_count": flow["frag_count"],
+        "flow_low_ttl_count": flow["low_ttl_count"],
+        "flow_unusual_dscp_count": flow["unusual_dscp_count"],
+        "flow_unique_sports": flow["unique_sports"],
+        "flow_unique_dports": flow["unique_dports"],
+        "flow_protocol_hint": flow_protocol_hint,
+        "flow_risk_score": flow_risk_score,
+        "flow_risk_level": flow_risk_level,
+        "flow_risk_reason": flow_risk_reason,
     }
 
 
@@ -647,6 +924,75 @@ def format_headers(p, n):
     return "\n".join(lines)
 
 
+def detect_flow_protocol_hint(flow):
+    scores = {
+        "http": flow.get("http_seen", 0),
+        "tls": flow.get("tls_seen", 0),
+        "ssh": flow.get("ssh_seen", 0),
+        "smb": flow.get("smb_seen", 0),
+        "dns": flow.get("dns_seen", 0),
+    }
+
+    proto = max(scores, key=scores.get)
+
+    return proto if scores[proto] > 0 else "unknown"
+
+
+def score_flow_behavior(flow):
+    score = 0
+    reasons = []
+
+    if flow["bad_ip_checksum_count"] > 0:
+        score += 25
+        reasons.append("flow_bad_ip_checksum")
+
+    # 1 = ignored , 2 = very weak signal
+    if flow["bad_l4_checksum_count"] >= 3:
+        score += 10
+        reasons.append("flow_bad_l4_checksum")
+    elif flow["bad_l4_checksum_count"] == 2:
+        score += 5
+
+    if flow["frag_count"] > 0:
+        score += 10
+        reasons.append("flow_fragmented")
+
+    if flow["low_ttl_count"] > 0:
+        score += 8
+        reasons.append("flow_low_ttl")
+
+    if flow["unusual_dscp_count"] > 0:
+        score += 5
+        reasons.append("flow_unusual_dscp")
+
+    if flow["syn_count"] > 3 and flow["ack_count"] == 0:
+        score += 20
+        reasons.append("syn_without_ack")
+
+    if flow["rst_count"] > 2:
+        score += 10
+        reasons.append("many_rst")
+
+    if flow["unique_dports"] > 5:
+        score += 15
+        reasons.append("multi_port_targeting")
+
+    if flow["duration"] < 1.0 and flow["pkts"] > 10:
+        score += 10
+        reasons.append("short_burst_flow")
+
+    score = max(0, min(100, score))
+
+    if score >= 70:
+        level = "high"
+    elif score >= 40:
+        level = "medium"
+    else:
+        level = "low"
+
+    return score, level, ",".join(reasons) if reasons else "flow_normal"
+
+
 def heuristic_score_reason(row):
     reasons = []
 
@@ -654,7 +1000,10 @@ def heuristic_score_reason(row):
         reasons.append("ipv4_checksum_bad")
 
     if row.get("l4_checksum_ok") == 0:
-        reasons.append("l4_checksum_bad")
+        flags = str(row.get("tcp_flags") or "").upper()
+
+        if flags != "A":
+            reasons.append("l4_checksum_bad")
 
     if (row.get("ip_flags_mf") == 1) or ((row.get("ip_frag_off") or 0) > 0):
         reasons.append("fragmented_packet")
@@ -681,6 +1030,15 @@ def heuristic_score_reason(row):
 
     if dp in (22, 80, 443, 445):
         reasons.append("focus_port")
+    
+    if int(row.get("flow_risk_score", 0) or 0) >= 40:
+        reasons.append("flow_behavior_suspicious")
+
+    if int(row.get("flow_unique_dports", 0) or 0) > 5:
+        reasons.append("multi_port_targeting")
+
+    if int(row.get("flow_syn_count", 0) or 0) > 3 and int(row.get("flow_ack_count", 0) or 0) == 0:
+        reasons.append("syn_without_ack")
 
     if not reasons:
         reasons.append("heuristic_normal")
@@ -728,6 +1086,16 @@ def _heuristic_ip_fraud_score(row):
     # focus ports
     if dp in (22, 80, 443, 445):
         score += 2
+
+    # flow-based
+    flow_score = int(row.get("flow_risk_score", 0) or 0)
+    score += min(25, flow_score // 2)
+
+    if int(row.get("flow_unique_dports", 0) or 0) > 5:
+        score += 10
+
+    if int(row.get("flow_syn_count", 0) or 0) > 3 and int(row.get("flow_ack_count", 0) or 0) == 0:
+        score += 10
 
     return max(0, min(100, score))
 
@@ -1005,6 +1373,97 @@ def good_capture_ifaces(include_virtual=False, verbose=True):
     return list(get_if_list() or [])
 
 
+def export_flows_csv(path="flows.csv"):
+    records = []
+
+    for key, f in flows.items():
+        s, d, proto, sp, dp = key
+        pkts = f["pkts"]
+
+        duration = (f["last"] - f["first"]) if (f["first"] is not None and f["last"] is not None) else 0.0
+        iat_avg = (f["iat_sum"] / (pkts - 1)) if pkts > 1 else 0.0
+
+        # scoring view:
+        flow_stats = {
+            "pkts": pkts,
+            "bytes": f["bytes"],
+            "iat_min": f["iat_min"] or 0.0,
+            "iat_avg": iat_avg,
+            "iat_max": f["iat_max"] or 0.0,
+            "duration": duration,
+            "fwd_pkts": f["fwd_pkts"],
+            "rev_pkts": f["rev_pkts"],
+            "fwd_bytes": f["fwd_bytes"],
+            "rev_bytes": f["rev_bytes"],
+            "syn_count": f["syn_count"],
+            "ack_count": f["ack_count"],
+            "fin_count": f["fin_count"],
+            "rst_count": f["rst_count"],
+            "psh_count": f["psh_count"],
+            "bad_ip_checksum_count": f["bad_ip_checksum_count"],
+            "bad_l4_checksum_count": f["bad_l4_checksum_count"],
+            "frag_count": f["frag_count"],
+            "low_ttl_count": f["low_ttl_count"],
+            "unusual_dscp_count": f["unusual_dscp_count"],
+            "unique_sports": len(f["sport_set"]),
+            "unique_dports": len(f["dport_set"]),
+            "http_seen": f["http_seen"],
+            "tls_seen": f["tls_seen"],
+            "dns_seen": f["dns_seen"],
+            "ssh_seen": f["ssh_seen"],
+            "smb_seen": f["smb_seen"],
+            "reasons": ",".join(sorted(f["reasons"])) if f["reasons"] else "flow_normal",
+        }
+
+        proto_hint = detect_flow_protocol_hint(flow_stats)
+        risk_score, risk_level, risk_reason = score_flow_behavior(flow_stats)
+
+        # export row
+        row = {
+            "flow_src_ip": s,
+            "flow_dst_ip": d,
+            "flow_proto": proto,
+            "flow_src_port": sp,
+            "flow_dst_port": dp,
+            "flow_pkts": flow_stats["pkts"],
+            "flow_bytes": flow_stats["bytes"],
+            "flow_duration": flow_stats["duration"],
+            "flow_iat_min": flow_stats["iat_min"],
+            "flow_iat_avg": flow_stats["iat_avg"],
+            "flow_iat_max": flow_stats["iat_max"],
+            "flow_fwd_pkts": flow_stats["fwd_pkts"],
+            "flow_rev_pkts": flow_stats["rev_pkts"],
+            "flow_fwd_bytes": flow_stats["fwd_bytes"],
+            "flow_rev_bytes": flow_stats["rev_bytes"],
+            "flow_syn_count": flow_stats["syn_count"],
+            "flow_ack_count": flow_stats["ack_count"],
+            "flow_fin_count": flow_stats["fin_count"],
+            "flow_rst_count": flow_stats["rst_count"],
+            "flow_psh_count": flow_stats["psh_count"],
+            "flow_bad_ip_checksum_count": flow_stats["bad_ip_checksum_count"],
+            "flow_bad_l4_checksum_count": flow_stats["bad_l4_checksum_count"],
+            "flow_frag_count": flow_stats["frag_count"],
+            "flow_low_ttl_count": flow_stats["low_ttl_count"],
+            "flow_unusual_dscp_count": flow_stats["unusual_dscp_count"],
+            "flow_unique_sports": flow_stats["unique_sports"],
+            "flow_unique_dports": flow_stats["unique_dports"],
+            "http_seen": flow_stats["http_seen"],
+            "tls_seen": flow_stats["tls_seen"],
+            "dns_seen": flow_stats["dns_seen"],
+            "ssh_seen": flow_stats["ssh_seen"],
+            "smb_seen": flow_stats["smb_seen"],
+            "flow_protocol_hint": proto_hint,
+            "flow_risk_score": risk_score,
+            "flow_risk_level": risk_level,
+            "flow_risk_reason": risk_reason,
+        }
+
+        records.append(row)
+
+    if records:
+        pd.DataFrame(records).to_csv(path, index=False)
+
+
 # main
 def main():
     ap = argparse.ArgumentParser()
@@ -1073,11 +1532,12 @@ def main():
             pass
     
     # overwrite outputs
-    for p in (args.outfile, args.log, args.features_csv, args.features_parquet):
-        if p and os.path.exists(p): 
-            os.remove(p)
-        if p and os.path.exists(p): 
-            os.remove(p)
+    for p in (args.outfile, args.log, args.features_csv, args.features_parquet, 'flows.csv', 'scores.csv'):
+        try:
+            if p and os.path.exists(p):
+                os.remove(p)
+        except Exception:
+            pass
     
     log = open(args.log, "w", encoding="utf-8")
     writer = None
@@ -1189,6 +1649,9 @@ def main():
                 print("No packets captured, skipping CSV generation.")
 
         print(f"Features written       : {args.features_csv}")
+
+        export_flows_csv("flows.csv")
+        print("Flows written          : flows.csv")
 
         if args.features_parquet:
             print(f"Parquet written       : {args.features_parquet}")

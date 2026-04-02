@@ -124,6 +124,12 @@ h3 {
     align-items: end;
 }
 
+.grid-form-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+}
+
 .field-group label {
     display: block;
     font-size: 12px;
@@ -267,7 +273,7 @@ h3 {
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 14px;
     margin-bottom: 14px;
 }
@@ -342,10 +348,16 @@ h3 {
     background: #111827;
 }
 
-.two-col {
+.three-col {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 14px;
+}
+
+@media (max-width: 1024px) {
+    .three-col {
+        grid-template-columns: 1fr;
+    }
 }
 
 .simple-list {

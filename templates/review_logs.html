@@ -39,34 +39,52 @@
                         <div class="stat-value">{{ summary.feature_rows }}</div>
                     </div>
                     <div class="stat-card">
+                        <div class="stat-label">Flows Rows</div>
+                        <div class="stat-value">{{ summary.flow_rows }}</div>
+                    </div>
+                    <div class="stat-card">
                         <div class="stat-label">Average Fraud Score</div>
                         <div class="stat-value">{{ summary.score_avg if summary.score_avg is not none else 'N/A' }}</div>
                     </div>
                 </section>
 
-                <section class="review-section two-col">
+                <section class="review-section three-col">
                     <div class="panel">
-                        <h2>Label Counts</h2>
+                        <h2>Packet Label Counts</h2>
                         {% if summary.labels %}
                         <ul class="simple-list">
                             {% for key, value in summary.labels.items() %}
-                            <li><span>{{ key }}</span><strong>{{ value }}</strong></li>
+                            <li><span>{{ key|capitalize }}</span><strong>{{ value }}</strong></li>
                             {% endfor %}
                         </ul>
                         {% else %}
                         <div class="muted">No label data available.</div>
                         {% endif %}
                     </div>
+
                     <div class="panel">
-                        <h2>Risk Level Counts</h2>
+                        <h2>Packet Risk Level Counts</h2>
                         {% if summary.risk_levels %}
                         <ul class="simple-list">
                             {% for key, value in summary.risk_levels.items() %}
-                            <li><span>{{ key }}</span><strong>{{ value }}</strong></li>
+                            <li><span>{{ key|capitalize }}</span><strong>{{ value }}</strong></li>
                             {% endfor %}
                         </ul>
                         {% else %}
                         <div class="muted">No risk-level data available.</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="panel">
+                        <h2>Flow Risk Level Counts</h2>
+                        {% if summary.flow_risk_levels %}
+                        <ul class="simple-list">
+                            {% for key, value in summary.flow_risk_levels.items() %}
+                            <li><span>{{ key|capitalize }}</span><strong>{{ value }}</strong></li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <div class="muted">No flow risk-level data available.</div>
                         {% endif %}
                     </div>
                 </section>
@@ -100,6 +118,35 @@
                 </section>
 
                 <section class="review-section panel">
+                    <h2>Highest Risk Flows {% if summary.top_flows %}(Total: {{ summary.top_flows|length }}){% endif %}</h2>
+
+                    {% if summary.top_flows %}
+                    <div class="table-wrap table-wrap-xy">
+                        <table class="full-score-table">
+                            <thead>
+                                <tr>
+                                    {% for key in summary.top_flows[0].keys() %}
+                                    <th>{{ key }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in summary.top_flows %}
+                                <tr>
+                                    {% for value in row.values() %}
+                                    <td>{{ value }}</td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="muted">No flow records available.</div>
+                    {% endif %}
+                </section>
+
+                <section class="review-section panel">
                     <h2>All Scored Records {% if summary.all_records %}(Total: {{ summary.all_records|length }}){% endif %}</h2>
 
                     {% if summary.all_records %}
@@ -125,6 +172,35 @@
                     </div>
                     {% else %}
                     <div class="muted">No scored records available.</div>
+                    {% endif %}
+                </section>
+
+                <section class="review-section panel">
+                    <h2>All Flow Records {% if summary.all_flows %}(Total: {{ summary.all_flows|length }}){% endif %}</h2>
+
+                    {% if summary.all_flows %}
+                    <div class="table-wrap table-wrap-xy">
+                        <table class="full-score-table">
+                            <thead>
+                                <tr>
+                                    {% for key in summary.all_flows[0].keys() %}
+                                    <th>{{ key }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in summary.all_flows %}
+                                <tr>
+                                    {% for value in row.values() %}
+                                    <td>{{ value }}</td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="muted">No flow records available.</div>
                     {% endif %}
                 </section>
 

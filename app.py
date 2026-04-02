@@ -61,6 +61,7 @@ def review_logs():
     scores_path = DATA_DIR / 'scores.csv'
     features_path = DATA_DIR / 'features.csv'
     capture_log_path = DATA_DIR / 'capture_live.txt'
+    flows_path = DATA_DIR / 'flows.csv'
 
     summary = {
         'total_rows': 0,
@@ -70,7 +71,11 @@ def review_logs():
         'top_records': [],
         'all_records': [],
         'feature_rows': 0,
-        'log_preview': ''
+        'log_preview': '',
+        'flow_rows': 0,
+        'top_flows': [],
+        'flow_risk_levels': {},
+        'all_flows': [],
     }
 
     if scores_path.exists():
@@ -119,6 +124,43 @@ def review_logs():
         except Exception:
             pass
 
+    if flows_path.exists():
+        try:
+            flow_df = pd.read_csv(flows_path)
+            summary['flow_rows'] = int(len(flow_df))
+
+            if 'flow_risk_level' in flow_df.columns:
+                summary['flow_risk_levels'] = {
+                    str(k): int(v)
+                    for k, v in flow_df['flow_risk_level'].fillna('unknown').value_counts().to_dict().items()
+                }
+
+            flow_cols = [c for c in [
+                'flow_src_ip', 'flow_dst_ip', 'flow_proto',
+                'flow_src_port', 'flow_dst_port',
+                'flow_pkts', 'flow_duration',
+                'flow_protocol_hint', 'flow_risk_score',
+                'flow_risk_level', 'flow_risk_reason'
+            ] if c in flow_df.columns]
+
+            if flow_cols:
+                summary['all_flows'] = flow_df[flow_cols].fillna('').to_dict(orient='records')
+
+                ranked_flows = flow_df.copy()
+
+                ranked_flows['flow_risk_score_num'] = pd.to_numeric(
+                    ranked_flows['flow_risk_score'], errors='coerce'
+                ).fillna(-1)
+
+                ranked_flows = ranked_flows.sort_values(
+                    by='flow_risk_score_num', ascending=False
+                )
+
+                summary['top_flows'] = ranked_flows[flow_cols].head(10).fillna('').to_dict(orient='records')
+
+        except Exception:
+            pass
+
     return render_template('review_logs.html', summary=summary)
 
 
@@ -127,9 +169,14 @@ def start_capture():
     if not FYP_SCRIPT.exists():
         return jsonify({'ok': False, 'message': f'fyp1.py not found at {FYP_SCRIPT}'}), 400
 
-    pcap_name = _safe_name(request.form.get('pcap_file'), 'capture_live.pcap')
+    # pcap_name = _safe_name(request.form.get('pcap_file'), 'capture_live.pcap')
+    # features_name = _safe_name(request.form.get('features_csv'), 'features.csv')
+    # flows_csv = _safe_name(request.form.get('flows_csv'), 'flows.csv')
+
+    pcap_name = "capture_live.pcap"
     seconds = request.form.get('seconds', '60').strip() or '60'
-    features_name = _safe_name(request.form.get('features_csv'), 'features.csv')
+    features_name = "features.csv"
+    flows_csv = "flows.csv"
 
     try:
         seconds_int = max(1, int(seconds))
@@ -165,6 +212,7 @@ def start_capture():
                 'features_csv': features_name,
                 'log': log_name,
                 'scores_csv': 'scores.csv',
+                'flows_csv': flows_csv,
             },
         }
     ), (200 if ok else 500)
