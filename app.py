@@ -17,6 +17,7 @@ DATA_DIR = PROJECT_ROOT
 MODEL_PATH = DATA_DIR / 'random_forest' / 'rf_model.joblib'
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
+app.json.sort_keys = False
 
 
 def _run_command(args: List[str]) -> subprocess.CompletedProcess:
@@ -43,6 +44,10 @@ def _load_fyp1_module() -> Any:
     return module
 
 
+def get_existing_cols(df, cols):
+    return [c for c in cols if c in df.columns]
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -61,7 +66,6 @@ def review_logs():
         'risk_levels': {},
         'score_avg': None,
         'top_records': [],
-        'all_records': [],
         'feature_rows': 0,
         'log_preview': '',
         'flow_rows': 0,
@@ -97,9 +101,6 @@ def review_logs():
                     ranked = ranked.sort_values(by='ip_fraud_score_num', ascending=False)
 
                 summary['top_records'] = ranked[columns].head(10).fillna('').to_dict(orient='records')
-            
-            summary['all_records'] = df.fillna('').to_dict(orient='records')
-
         except Exception:
             pass
 
@@ -252,6 +253,38 @@ def score_only():
         )
     except Exception as exc:
         return jsonify({'ok': False, 'message': 'Scoring failed.', 'stdout': '', 'stderr': str(exc)}), 500
+
+
+@app.get('/api/records')
+def get_records():
+    page = max(1, int(request.args.get('page', 1)))
+    per_page = 50
+
+    scores_path = DATA_DIR / 'scores.csv'
+    if not scores_path.exists():
+        return jsonify({
+            'data': [],
+            'total': 0,
+            'page': page,
+            'per_page': per_page
+        })
+
+    df = pd.read_csv(scores_path)
+    
+    columns = list(df.columns)   
+
+    start = (page - 1) * per_page
+    end = start + per_page
+
+    data = df.iloc[start:end][columns].fillna('').to_dict(orient='records')
+
+    return jsonify({
+        'data': data,
+        'columns': columns,
+        'total': int(len(df)),
+        'page': page,
+        'per_page': per_page
+    })
 
 
 if __name__ == '__main__':

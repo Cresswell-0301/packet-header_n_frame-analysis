@@ -409,3 +409,43 @@ th {
         grid-template-columns: 1fr;
     }
 }
+
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+}
+
+.page-btn {
+    min-width: 34px;
+    height: 34px;
+    border: 1px solid var(--border);
+    background: var(--white);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+.page-btn:hover {
+    background: #eef0f6;
+}
+
+.page-btn.active {
+    background: var(--navy);
+    color: white;
+    font-weight: bold;
+}
+
+.page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.pagination-dots {
+    padding: 0 6px;
+    color: var(--muted);
+}
