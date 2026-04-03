@@ -1,18 +1,17 @@
-async function loadPage(page = 1) {
+async function loadTablePage({ page = 1, apiUrl, headSelector, bodySelector, paginationSelector, emptyMessage, errorPrefix, reloadFn }) {
     try {
-        const res = await fetch(`/api/records?page=${page}`);
+        const res = await fetch(`${apiUrl}?page=${page}`);
         const json = await res.json();
 
-        const head = document.querySelector("#records-table-head");
-        const body = document.querySelector("#table-body");
-        const pagination = document.querySelector("#records-pagination");
+        const head = document.querySelector(headSelector);
+        const body = document.querySelector(bodySelector);
 
         body.innerHTML = "";
-        pagination.innerHTML = "";
 
         if (!json.data || json.data.length === 0) {
             head.innerHTML = "<tr><th>No data</th></tr>";
-            body.innerHTML = "<tr><td>No scored records available.</td></tr>";
+            body.innerHTML = `<tr><td>${emptyMessage}</td></tr>`;
+            renderPagination(paginationSelector, 1, 1, reloadFn);
             return;
         }
 
@@ -35,20 +34,45 @@ async function loadPage(page = 1) {
         });
 
         const totalPages = Math.ceil(json.total / json.per_page);
-        renderPagination(json.page, totalPages);
-        
+        renderPagination(paginationSelector, json.page, totalPages, reloadFn);
     } catch (error) {
-        const head = document.querySelector("#records-table-head");
-        const body = document.querySelector("#table-body");
+        const head = document.querySelector(headSelector);
+        const body = document.querySelector(bodySelector);
 
         head.innerHTML = "<tr><th>Error</th></tr>";
-        body.innerHTML = `<tr><td>Failed to load records: ${error.message}</td></tr>`;
-        console.error("loadPage error:", error);
+        body.innerHTML = `<tr><td>${errorPrefix}: ${error.message}</td></tr>`;
+        console.error(`${errorPrefix}:`, error);
     }
 }
 
-function renderPagination(currentPage, totalPages) {
-    const pagination = document.querySelector("#records-pagination");
+function loadPage(page = 1) {
+    return loadTablePage({
+        page,
+        apiUrl: "/api/records",
+        headSelector: "#records-table-head",
+        bodySelector: "#table-body",
+        paginationSelector: "#records-pagination",
+        emptyMessage: "No scored records available.",
+        errorPrefix: "Failed to load records",
+        reloadFn: loadPage,
+    });
+}
+
+function loadFlowPage(page = 1) {
+    return loadTablePage({
+        page,
+        apiUrl: "/api/flows",
+        headSelector: "#flows-table-head",
+        bodySelector: "#flows-table-body",
+        paginationSelector: "#flows-pagination",
+        emptyMessage: "No flow records available.",
+        errorPrefix: "Failed to load flow records",
+        reloadFn: loadFlowPage,
+    });
+}
+
+function renderPagination(containerSelector, currentPage, totalPages, onPageClick) {
+    const pagination = document.querySelector(containerSelector);
     pagination.innerHTML = "";
 
     const createBtn = (text, page, disabled = false, active = false) => {
@@ -59,15 +83,13 @@ function renderPagination(currentPage, totalPages) {
         if (active) btn.classList.add("active");
         if (disabled) btn.disabled = true;
 
-        btn.addEventListener("click", () => loadPage(page));
+        btn.addEventListener("click", () => onPageClick(page));
         return btn;
     };
 
-    // Prev button
     pagination.appendChild(createBtn("«", currentPage - 1, currentPage === 1));
 
-    const range = 2; // how many pages around current
-
+    const range = 2;
     let start = Math.max(1, currentPage - range);
     let end = Math.min(totalPages, currentPage + range);
 
@@ -95,10 +117,10 @@ function renderPagination(currentPage, totalPages) {
         pagination.appendChild(createBtn(totalPages, totalPages));
     }
 
-    // Next button
     pagination.appendChild(createBtn("»", currentPage + 1, currentPage === totalPages));
 }
 
 document.addEventListener("DOMContentLoaded", () => {
     loadPage(1);
+    loadFlowPage(1);
 });

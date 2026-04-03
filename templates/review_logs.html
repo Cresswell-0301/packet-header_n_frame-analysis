@@ -90,7 +90,7 @@
                 </section>
 
                 <section class="review-section panel">
-                    <h2>Highest Risk Packets {% if summary.top_records %} (Total: {{ summary.top_records|length }}) {% endif %}</h2>
+                    <h2>Top 10 Highest Risk Packets</h2>
                     {% if summary.top_records %}
                     <div class="table-wrap table-wrap-xy">
                         <table class="full-score-table">
@@ -118,7 +118,7 @@
                 </section>
 
                 <section class="review-section panel">
-                    <h2>Highest Risk Flows {% if summary.top_flows %}(Total: {{ summary.top_flows|length }}){% endif %}</h2>
+                    <h2>Top 10 Highest Risk Flows</h2>
 
                     {% if summary.top_flows %}
                     <div class="table-wrap table-wrap-xy">
@@ -168,32 +168,24 @@
                 </section>
 
                 <section class="review-section panel">
-                    <h2>All Flow Records {% if summary.all_flows %}(Total: {{ summary.all_flows|length }}){% endif %}</h2>
+                    <h2>All Flow Records (Total: {{ summary.flow_rows }})</h2>
 
-                    {% if summary.all_flows %}
                     <div class="table-wrap table-wrap-xy">
-                        <table class="full-score-table">
-                            <thead>
+                        <table class="full-score-table" id="flows-table">
+                            <thead id="flows-table-head">
                                 <tr>
-                                    {% for key in summary.all_flows[0].keys() %}
-                                    <th>{{ key }}</th>
-                                    {% endfor %}
+                                    <th>Loading...</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                {% for row in summary.all_flows %}
+                            <tbody id="flows-table-body">
                                 <tr>
-                                    {% for value in row.values() %}
-                                    <td>{{ value }}</td>
-                                    {% endfor %}
+                                    <td>Loading flow records...</td>
                                 </tr>
-                                {% endfor %}
                             </tbody>
                         </table>
                     </div>
-                    {% else %}
-                    <div class="muted">No flow records available.</div>
-                    {% endif %}
+
+                    <div id="flows-pagination" class="pagination"></div>
                 </section>
 
                 <section class="review-section panel">

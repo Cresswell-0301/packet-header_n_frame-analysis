@@ -48,6 +48,33 @@ def get_existing_cols(df, cols):
     return [c for c in cols if c in df.columns]
 
 
+def get_paginated_csv_response(csv_path: Path, page: int, per_page: int):
+    if not csv_path.exists():
+        return jsonify({
+            'data': [],
+            'columns': [],
+            'total': 0,
+            'page': page,
+            'per_page': per_page
+        })
+
+    df = pd.read_csv(csv_path)
+    columns = list(df.columns)
+
+    start = (page - 1) * per_page
+    end = start + per_page
+
+    data = df.iloc[start:end][columns].fillna('').to_dict(orient='records')
+
+    return jsonify({
+        'data': data,
+        'columns': columns,
+        'total': int(len(df)),
+        'page': page,
+        'per_page': per_page
+    })
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -71,7 +98,6 @@ def review_logs():
         'flow_rows': 0,
         'top_flows': [],
         'flow_risk_levels': {},
-        'all_flows': [],
     }
 
     if scores_path.exists():
@@ -137,8 +163,6 @@ def review_logs():
             ] if c in flow_df.columns]
 
             if flow_cols:
-                summary['all_flows'] = flow_df[flow_cols].fillna('').to_dict(orient='records')
-
                 ranked_flows = flow_df.copy()
 
                 ranked_flows['flow_risk_score_num'] = pd.to_numeric(
@@ -259,32 +283,14 @@ def score_only():
 def get_records():
     page = max(1, int(request.args.get('page', 1)))
     per_page = 50
+    return get_paginated_csv_response(DATA_DIR / 'scores.csv', page, per_page)
 
-    scores_path = DATA_DIR / 'scores.csv'
-    if not scores_path.exists():
-        return jsonify({
-            'data': [],
-            'total': 0,
-            'page': page,
-            'per_page': per_page
-        })
 
-    df = pd.read_csv(scores_path)
-    
-    columns = list(df.columns)   
-
-    start = (page - 1) * per_page
-    end = start + per_page
-
-    data = df.iloc[start:end][columns].fillna('').to_dict(orient='records')
-
-    return jsonify({
-        'data': data,
-        'columns': columns,
-        'total': int(len(df)),
-        'page': page,
-        'per_page': per_page
-    })
+@app.get('/api/flows')
+def get_flows():
+    page = max(1, int(request.args.get('page', 1)))
+    per_page = 50
+    return get_paginated_csv_response(DATA_DIR / 'flows.csv', page, per_page)
 
 
 if __name__ == '__main__':
