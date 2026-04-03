@@ -94,7 +94,7 @@ async function runCaptureAndScore() {
         const scoreResponse = scoreResult.response;
         const scoreJson = scoreResult.data;
 
-        stdoutBox.textContent = (captureJson.stdout || "No standard output.") + "\n\n--- Scoring Output ---\n" + (scoreJson.stdout || "No standard output.");
+        stdoutBox.textContent = (captureJson.stdout || "No standard output.") + "\n--- Scoring Output ---\n" + (scoreJson.stdout || "No standard output.");
 
         stderrBox.textContent = (captureJson.stderr || "No standard error.") + "\n\n--- Scoring Error ---\n" + (scoreJson.stderr || "No standard error.");
 

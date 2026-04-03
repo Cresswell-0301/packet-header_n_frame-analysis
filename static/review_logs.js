@@ -73,7 +73,16 @@ function loadFlowPage(page = 1) {
 
 function renderPagination(containerSelector, currentPage, totalPages, onPageClick) {
     const pagination = document.querySelector(containerSelector);
+
+    if (!pagination) {
+        return;
+    }
+
     pagination.innerHTML = "";
+
+    if (totalPages <= 1) {
+        return;
+    }
 
     const createBtn = (text, page, disabled = false, active = false) => {
         const btn = document.createElement("button");

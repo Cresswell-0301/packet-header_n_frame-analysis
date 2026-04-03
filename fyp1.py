@@ -243,6 +243,11 @@ flows = defaultdict(lambda: {
     "rst_count": 0, # abnormal reset
     "psh_count": 0, # data push
 
+    # handshake tracking
+    "syn_seen": 0,
+    "synack_seen": 0,
+    "ack_seen_after_synack": 0,
+
     # integrity / anomaly counters
     "bad_ip_checksum_count": 0, # corrupted / crafted packets
     "bad_l4_checksum_count": 0, # suspicious or forged traffic
@@ -263,7 +268,7 @@ flows = defaultdict(lambda: {
     "dport_set": set(),
 
     # explanation
-    "reasons": set()
+    "reasons": set(),
 })
 
 ip_to_macs = defaultdict(set)
@@ -336,6 +341,9 @@ FEATURE_COLS = [
     "flow_fin_count",
     "flow_rst_count",
     "flow_psh_count",
+    "flow_syn_seen",
+    "flow_synack_seen",
+    "flow_ack_seen_after_synack",
     "flow_bad_ip_checksum_count",
     "flow_bad_l4_checksum_count",
     "flow_frag_count",
@@ -440,14 +448,28 @@ def update_flow_stats(pkt, rawlen):
 
         if "S" in flags:
             f["syn_count"] += 1
+
         if "A" in flags:
             f["ack_count"] += 1
+
         if "F" in flags:
             f["fin_count"] += 1
+
         if "R" in flags:
             f["rst_count"] += 1
+
         if "P" in flags:
             f["psh_count"] += 1
+
+        if "S" in flags and "A" not in flags:
+            f["syn_seen"] = 1
+
+        if "S" in flags and "A" in flags:
+            f["synack_seen"] = 1
+
+        # final ACK of 3-way handshake
+        if "A" in flags and "S" not in flags and f["synack_seen"]:
+            f["ack_seen_after_synack"] = 1
 
     if TCP in pkt:
         f["sport_set"].add(int(pkt[TCP].sport))
@@ -557,6 +579,9 @@ def flow_stats_for(pkt):
         "dns_seen": f["dns_seen"],
         "ssh_seen": f["ssh_seen"],
         "smb_seen": f["smb_seen"],
+        "syn_seen": f["syn_seen"],
+        "synack_seen": f["synack_seen"],
+        "ack_seen_after_synack": f["ack_seen_after_synack"],
         "reasons": ",".join(sorted(f["reasons"])) if f["reasons"] else "flow_normal"
     }
 
@@ -755,6 +780,9 @@ def feature_row(n, pkt, raw):
             "dns_seen": 0, 
             "ssh_seen": 0, 
             "smb_seen": 0,
+            "syn_seen": 0,
+            "synack_seen": 0,
+            "ack_seen_after_synack": 0,
             "reasons": "flow_normal"
         }
 
@@ -848,6 +876,9 @@ def feature_row(n, pkt, raw):
         "flow_fin_count": flow["fin_count"],
         "flow_rst_count": flow["rst_count"],
         "flow_psh_count": flow["psh_count"],
+        "flow_syn_seen": flow["syn_seen"],
+        "flow_synack_seen": flow["synack_seen"],
+        "flow_ack_seen_after_synack": flow["ack_seen_after_synack"],
         "flow_bad_ip_checksum_count": flow["bad_ip_checksum_count"],
         "flow_bad_l4_checksum_count": flow["bad_l4_checksum_count"],
         "flow_frag_count": flow["frag_count"],
@@ -965,13 +996,35 @@ def score_flow_behavior(flow):
         score += 5
         reasons.append("flow_unusual_dscp")
 
+    # SYN without ACK
     if flow["syn_count"] > 3 and flow["ack_count"] == 0:
         score += 20
         reasons.append("syn_without_ack")
 
+    # RST-heavy flow
     if flow["rst_count"] > 2:
         score += 10
         reasons.append("many_rst")
+
+    # Incomplete handshake
+    if flow.get("syn_seen", 0) == 1:
+        if flow.get("synack_seen", 0) == 0:
+            score += 15
+            reasons.append("incomplete_handshake_no_synack")
+        elif flow.get("ack_seen_after_synack", 0) == 0:
+            score += 12
+            reasons.append("incomplete_handshake_no_final_ack")
+
+    # Direction imbalance
+    fwd = int(flow.get("fwd_pkts", 0) or 0)
+    rev = int(flow.get("rev_pkts", 0) or 0)
+
+    if fwd >= 6 and rev == 0:
+        score += 15
+        reasons.append("direction_imbalance_no_response")
+    elif fwd >= 10 and rev > 0 and fwd >= (rev * 4):
+        score += 10
+        reasons.append("direction_imbalance")
 
     if flow["unique_dports"] > 5:
         score += 15
@@ -1412,6 +1465,9 @@ def export_flows_csv(path="flows.csv"):
             "dns_seen": f["dns_seen"],
             "ssh_seen": f["ssh_seen"],
             "smb_seen": f["smb_seen"],
+            "syn_seen": f["syn_seen"],
+            "synack_seen": f["synack_seen"],
+            "ack_seen_after_synack": f["ack_seen_after_synack"],
             "reasons": ",".join(sorted(f["reasons"])) if f["reasons"] else "flow_normal",
         }
 
@@ -1452,6 +1508,9 @@ def export_flows_csv(path="flows.csv"):
             "dns_seen": flow_stats["dns_seen"],
             "ssh_seen": flow_stats["ssh_seen"],
             "smb_seen": flow_stats["smb_seen"],
+            "flow_syn_seen": flow_stats["syn_seen"],
+            "flow_synack_seen": flow_stats["synack_seen"],
+            "flow_ack_seen_after_synack": flow_stats["ack_seen_after_synack"],
             "flow_protocol_hint": proto_hint,
             "flow_risk_score": risk_score,
             "flow_risk_level": risk_level,
