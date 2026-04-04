@@ -116,74 +116,108 @@ def parse_tcp_options(tcp):
     return dict(opts)
 
 
-def parse_tls_sni(payload_bytes):
-    b = payload_bytes
-
+def parse_tls_sni(b):
     try:
-        if len(b) < 5 or b[0] != 0x16: 
+        if len(b) < 9 or b[0] != 0x16:
             return None
-        
-        rec_len = u16(b,3)
 
-        if len(b) < 5+rec_len: 
+        rec_len = int.from_bytes(b[3:5], "big")
+        if len(b) < 5 + rec_len:
             return None
-        
-        hs = b[5:5+rec_len]
 
-        if len(hs) < 4 or hs[0] != 0x01: 
-            return None
-        if len(hs) < 4+34: 
-            return None
-        
-        off = 4+34
-        
-        if off >= len(hs): 
-            return None
-        
-        sid_len = hs[off]
-        off += 1 + sid_len
-        
-        if off+2 > len(hs): 
-            return None
-        
-        cs_len = u16(hs, off)
-        off += 2 + cs_len
-        
-        if off+1 > len(hs): 
-            return None
-        
-        cm_len = hs[off]
-        off += 1 + cm_len
-        
-        if off+2 > len(hs): 
-            return None
-        
-        ext_len = u16(hs, off)
-        off += 2
-        end = min(len(hs), off + ext_len)
+        rec = b[5:5 + rec_len]
 
-        while off + 4 <= end:
-            etype = u16(hs, off)
-            elen = u16(hs, off+2)
-            off += 4
+        # ClientHello handshake
+        if len(rec) < 4 or rec[0] != 0x01:
+            return None
 
-            if etype == 0 and off + 2 <= end:
-                lst_len = u16(hs, off)
-                p = off+2
-                
-                while p + 3 <= off+2+lst_len and p + 3 <= end:
-                    nt = hs[p]
-                    nlen = u16(hs, p+1)
-                    p += 3
+        hs_len = int.from_bytes(rec[1:4], "big")
+        if len(rec) < 4 + hs_len:
+            return None
 
-                    if nt == 0 and p + nlen <= end:
-                        return hs[p:p+nlen].decode("idna", "ignore")
-                    
-                    p += nlen
-            off += elen
+        ch = rec[4:4 + hs_len]
+
+        p = 0
+
+        # legacy_version (2) + random (32)
+        if p + 34 > len(ch):
+            return None
+        p += 34
+
+        # session_id
+        if p + 1 > len(ch):
+            return None
+        sid_len = ch[p]
+        p += 1
+        if p + sid_len > len(ch):
+            return None
+        p += sid_len
+
+        # cipher_suites
+        if p + 2 > len(ch):
+            return None
+        cs_len = int.from_bytes(ch[p:p+2], "big")
+        p += 2
+        if p + cs_len > len(ch):
+            return None
+        p += cs_len
+
+        # compression_methods
+        if p + 1 > len(ch):
+            return None
+        comp_len = ch[p]
+        p += 1
+        if p + comp_len > len(ch):
+            return None
+        p += comp_len
+
+        # extensions
+        if p + 2 > len(ch):
+            return None
+        ext_total = int.from_bytes(ch[p:p+2], "big")
+        p += 2
+        ext_end = p + ext_total
+        if ext_end > len(ch):
+            return None
+
+        while p + 4 <= ext_end:
+            etype = int.from_bytes(ch[p:p+2], "big")
+            elen = int.from_bytes(ch[p+2:p+4], "big")
+            p += 4
+
+            if p + elen > ext_end:
+                return None
+
+            if etype == 0:  # server_name
+                ext = ch[p:p+elen]
+
+                if len(ext) < 5:
+                    return None
+
+                list_len = int.from_bytes(ext[0:2], "big")
+                q = 2
+                list_end = min(2 + list_len, len(ext))
+
+                while q + 3 <= list_end:
+                    name_type = ext[q]
+                    name_len = int.from_bytes(ext[q+1:q+3], "big")
+                    q += 3
+
+                    if q + name_len > list_end:
+                        return None
+
+                    if name_type == 0:
+                        return ext[q:q+name_len].decode("ascii", "ignore")
+
+                    q += name_len
+
+                return None
+
+            p += elen
+
     except Exception:
         return None
-    
+
     return None
 
 
@@ -262,6 +296,16 @@ flows = defaultdict(lambda: {
     "dns_seen": 0,
     "ssh_seen": 0, # 22
     "smb_seen": 0, # 445
+
+    # HTTP details
+    "http_method": "",
+    "http_host": "",
+    "http_path": "",
+
+    # TLS details
+    "tls_sni": "",
+    "tls_buffer": b"",
+    "tls_sni_done": 0,
 
     # ports / endpoints
     "sport_set": set(),
@@ -352,6 +396,12 @@ FEATURE_COLS = [
     "flow_unique_sports",
     "flow_unique_dports",
     "flow_protocol_hint",
+    "flow_http_seen",
+    "flow_http_method",
+    "flow_http_host",
+    "flow_http_path",
+    "flow_tls_seen",
+    "flow_tls_sni",
     "flow_risk_score",
     "flow_risk_level",
     "flow_risk_reason",
@@ -523,14 +573,65 @@ def update_flow_stats(pkt, rawlen):
         sport = int(pkt[TCP].sport)
         dport = int(pkt[TCP].dport)
 
-        if 80 in (sport, dport):
-            f["http_seen"] += 1
+        payload = bytes(pkt[Raw].load) if Raw in pkt else b""
+
+        # HTTP detection from payload
+        method, host, path = parse_http(payload)
+        if method and method != "RESP":
+            f["http_seen"] = 1
+
+            if not f["http_method"]:
+                f["http_method"] = method
+            if host and not f["http_host"]:
+                f["http_host"] = host
+            if path and not f["http_path"]:
+                f["http_path"] = path
+
+        # HTTP detection from HTTP response line
+        elif method == "RESP":
+            f["http_seen"] = 1
+            if not f["http_method"]:
+                f["http_method"] = "RESP"
+            if not f["http_path"]:
+                f["http_path"] = path or ""
+
+        # HTTP detection by port only
+        elif 80 in (sport, dport):
+            f["http_seen"] = 1
+
+        # TLS detection
         if 443 in (sport, dport):
-            f["tls_seen"] += 1
+            f["tls_seen"] = 1
+
+        if not f["tls_sni_done"]:
+            if dport == 443 and payload and len(payload) >= 6 and payload[0] == 0x16 and payload[5] == 0x01:
+                if not f["tls_buffer"]:
+                    f["tls_buffer"] = payload
+                else:
+                    f["tls_buffer"] += payload
+
+            elif dport == 443 and payload and f["tls_buffer"]:
+                f["tls_buffer"] += payload
+
+            if len(f["tls_buffer"]) >= 5:
+                needed = 5 + u16(f["tls_buffer"], 3)
+
+                if len(f["tls_buffer"]) >= needed:
+                    candidate = f["tls_buffer"][:needed]
+                    sni = parse_tls_sni(candidate)
+
+                    if sni:
+                        f["tls_sni"] = sni
+                        f["reasons"].add(f"tls_sni:{sni}")
+
+                    f["tls_sni_done"] = 1
+                    f["tls_buffer"] = b""
+
+        # Other protocols
         if 22 in (sport, dport):
-            f["ssh_seen"] += 1
+            f["ssh_seen"] = 1
         if 445 in (sport, dport):
-            f["smb_seen"] += 1
+            f["smb_seen"] = 1
 
     elif UDP in pkt:
         sport = int(pkt[UDP].sport)
@@ -538,7 +639,6 @@ def update_flow_stats(pkt, rawlen):
 
         if 53 in (sport, dport):
             f["dns_seen"] += 1
-
 
 def flow_stats_for(pkt):
     key = canonical_flow_key(pkt)
@@ -575,7 +675,11 @@ def flow_stats_for(pkt):
         "unique_sports": len(f["sport_set"]),
         "unique_dports": len(f["dport_set"]),
         "http_seen": f["http_seen"],
+        "http_method": f["http_method"],
+        "http_host": f["http_host"],
+        "http_path": f["http_path"],
         "tls_seen": f["tls_seen"],
+        "tls_sni": f["tls_sni"],
         "dns_seen": f["dns_seen"],
         "ssh_seen": f["ssh_seen"],
         "smb_seen": f["smb_seen"],
@@ -776,7 +880,12 @@ def feature_row(n, pkt, raw):
             "unique_sports": 0, 
             "unique_dports": 0,
             "http_seen": 0, 
+            "http_method": "",
+            "http_host": "",
+            "http_path": "",
             "tls_seen": 0, 
+            "tls_sni": "",
+
             "dns_seen": 0, 
             "ssh_seen": 0, 
             "smb_seen": 0,
@@ -887,6 +996,12 @@ def feature_row(n, pkt, raw):
         "flow_unique_sports": flow["unique_sports"],
         "flow_unique_dports": flow["unique_dports"],
         "flow_protocol_hint": flow_protocol_hint,
+        "flow_http_seen": flow["http_seen"],
+        "flow_http_method": flow["http_method"],
+        "flow_http_host": flow["http_host"],
+        "flow_http_path": flow["http_path"],
+        "flow_tls_seen": flow["tls_seen"],
+        "flow_tls_sni": flow["tls_sni"],
         "flow_risk_score": flow_risk_score,
         "flow_risk_level": flow_risk_level,
         "flow_risk_reason": flow_risk_reason,
@@ -956,17 +1071,22 @@ def format_headers(p, n):
 
 
 def detect_flow_protocol_hint(flow):
-    scores = {
-        "http": flow.get("http_seen", 0),
-        "tls": flow.get("tls_seen", 0),
-        "ssh": flow.get("ssh_seen", 0),
-        "smb": flow.get("smb_seen", 0),
-        "dns": flow.get("dns_seen", 0),
-    }
-
-    proto = max(scores, key=scores.get)
-
-    return proto if scores[proto] > 0 else "unknown"
+    if flow.get("http_seen", 0):
+        return "http"
+    
+    if flow.get("tls_seen", 0):
+        return "tls"
+    
+    if flow.get("ssh_seen", 0):
+        return "ssh"
+    
+    if flow.get("smb_seen", 0):
+        return "smb"
+    
+    if flow.get("dns_seen", 0):
+        return "dns"
+    
+    return "unknown"
 
 
 def score_flow_behavior(flow):
@@ -1460,11 +1580,18 @@ def export_flows_csv(path="flows.csv"):
             "unusual_dscp_count": f["unusual_dscp_count"],
             "unique_sports": len(f["sport_set"]),
             "unique_dports": len(f["dport_set"]),
+
             "http_seen": f["http_seen"],
+            "http_method": f["http_method"],
+            "http_host": f["http_host"],
+            "http_path": f["http_path"],
+            "tls_sni": f["tls_sni"],
+
             "tls_seen": f["tls_seen"],
             "dns_seen": f["dns_seen"],
             "ssh_seen": f["ssh_seen"],
             "smb_seen": f["smb_seen"],
+
             "syn_seen": f["syn_seen"],
             "synack_seen": f["synack_seen"],
             "ack_seen_after_synack": f["ack_seen_after_synack"],
@@ -1481,36 +1608,50 @@ def export_flows_csv(path="flows.csv"):
             "flow_proto": proto,
             "flow_src_port": sp,
             "flow_dst_port": dp,
+
             "flow_pkts": flow_stats["pkts"],
             "flow_bytes": flow_stats["bytes"],
             "flow_duration": flow_stats["duration"],
             "flow_iat_min": flow_stats["iat_min"],
             "flow_iat_avg": flow_stats["iat_avg"],
             "flow_iat_max": flow_stats["iat_max"],
+
             "flow_fwd_pkts": flow_stats["fwd_pkts"],
             "flow_rev_pkts": flow_stats["rev_pkts"],
             "flow_fwd_bytes": flow_stats["fwd_bytes"],
             "flow_rev_bytes": flow_stats["rev_bytes"],
+
             "flow_syn_count": flow_stats["syn_count"],
             "flow_ack_count": flow_stats["ack_count"],
             "flow_fin_count": flow_stats["fin_count"],
             "flow_rst_count": flow_stats["rst_count"],
             "flow_psh_count": flow_stats["psh_count"],
+
             "flow_bad_ip_checksum_count": flow_stats["bad_ip_checksum_count"],
             "flow_bad_l4_checksum_count": flow_stats["bad_l4_checksum_count"],
             "flow_frag_count": flow_stats["frag_count"],
             "flow_low_ttl_count": flow_stats["low_ttl_count"],
             "flow_unusual_dscp_count": flow_stats["unusual_dscp_count"],
+
             "flow_unique_sports": flow_stats["unique_sports"],
             "flow_unique_dports": flow_stats["unique_dports"],
-            "http_seen": flow_stats["http_seen"],
-            "tls_seen": flow_stats["tls_seen"],
-            "dns_seen": flow_stats["dns_seen"],
-            "ssh_seen": flow_stats["ssh_seen"],
-            "smb_seen": flow_stats["smb_seen"],
+
+            "flow_http_seen": flow_stats["http_seen"],
+            "flow_http_method": flow_stats["http_method"],
+            "flow_http_host": flow_stats["http_host"],
+            "flow_http_path": flow_stats["http_path"],
+
+            "flow_tls_seen": flow_stats["tls_seen"],
+            "flow_tls_sni": flow_stats["tls_sni"],
+
+            "flow_dns_seen": flow_stats["dns_seen"],
+            "flow_ssh_seen": flow_stats["ssh_seen"],
+            "flow_smb_seen": flow_stats["smb_seen"],
+
             "flow_syn_seen": flow_stats["syn_seen"],
             "flow_synack_seen": flow_stats["synack_seen"],
             "flow_ack_seen_after_synack": flow_stats["ack_seen_after_synack"],
+            
             "flow_protocol_hint": proto_hint,
             "flow_risk_score": risk_score,
             "flow_risk_level": risk_level,
