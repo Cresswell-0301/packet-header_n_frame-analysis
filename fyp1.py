@@ -251,6 +251,24 @@ def parse_http(payload_bytes):
     return None, None, None
 
 
+def parse_ssh_banner(payload_bytes):
+    try:
+        if not payload_bytes:
+            return None
+
+        text = payload_bytes.decode("utf-8", errors="ignore").strip()
+
+        if text.startswith("SSH-"):
+            first_line = text.splitlines()[0].strip()
+
+            if len(first_line) <= 255:
+                return first_line
+    except Exception:
+        return None
+
+    return None
+
+
 # flow stats store
 flows = defaultdict(lambda: {
     # Basic volume & timing
@@ -302,6 +320,12 @@ flows = defaultdict(lambda: {
     "http_port_fallback": 0,
     "tls_payload_detected": 0,
     "tls_port_fallback": 0,
+
+    # SSH details
+    "ssh_payload_detected": 0,
+    "ssh_port_fallback": 0,
+    "ssh_detect_source": "",
+    "ssh_banner": "",
 
     # HTTP details
     "http_method": "",
@@ -593,6 +617,27 @@ def update_flow_stats(pkt, rawlen):
 
         payload = bytes(pkt[Raw].load) if Raw in pkt else b""
 
+        # SSH detection
+        ssh_port_match = 22 in (sport, dport)
+
+        ssh_banner = parse_ssh_banner(payload)
+
+        if ssh_banner:
+            f["ssh_seen"] = 1
+            f["ssh_payload_detected"] = 1
+            f["ssh_port_fallback"] = 0
+            f["ssh_detect_source"] = "payload"
+
+            if not f["ssh_banner"]:
+                f["ssh_banner"] = ssh_banner
+
+        elif ssh_port_match:
+            f["ssh_seen"] = 1
+            f["ssh_port_fallback"] = 1
+
+            if not f["ssh_detect_source"]:
+                f["ssh_detect_source"] = "port"
+
         # HTTP detection
         http_port_match = sport in (80, 8080, 8000, 8888) or dport in (80, 8080, 8000, 8888)
         
@@ -685,9 +730,7 @@ def update_flow_stats(pkt, rawlen):
             if not f["tls_detect_source"]:
                 f["tls_detect_source"] = "port"
 
-        # Other protocols
-        if 22 in (sport, dport):
-            f["ssh_seen"] = 1
+        # SMB protocols
         if 445 in (sport, dport):
             f["smb_seen"] = 1
 
@@ -746,9 +789,14 @@ def flow_stats_for(pkt):
         "tls_port_fallback": f["tls_port_fallback"],
         "tls_detect_source": f["tls_detect_source"],
         "tls_sni": f["tls_sni"],
+
+        "ssh_seen": f["ssh_seen"],
+        "ssh_payload_detected": f["ssh_payload_detected"],
+        "ssh_port_fallback": f["ssh_port_fallback"],
+        "ssh_detect_source": f["ssh_detect_source"],
+        "ssh_banner": f["ssh_banner"],
         
         "dns_seen": f["dns_seen"],
-        "ssh_seen": f["ssh_seen"],
         "smb_seen": f["smb_seen"],
         "syn_seen": f["syn_seen"],
         "synack_seen": f["synack_seen"],
@@ -963,8 +1011,13 @@ def feature_row(n, pkt, raw):
             "tls_port_fallback": 0,
             "tls_detect_source": "",
 
-            "dns_seen": 0, 
             "ssh_seen": 0, 
+            "ssh_payload_detected": 0,
+            "ssh_port_fallback": 0,
+            "ssh_detect_source": "",
+            "ssh_banner": "",
+
+            "dns_seen": 0, 
             "smb_seen": 0,
             "syn_seen": 0,
             "synack_seen": 0,
@@ -1088,6 +1141,12 @@ def feature_row(n, pkt, raw):
         "flow_tls_detect_source": flow["tls_detect_source"],
         "flow_tls_sni": flow["tls_sni"],
 
+        "flow_ssh_seen": flow["ssh_seen"],
+        "flow_ssh_payload_detected": flow["ssh_payload_detected"],
+        "flow_ssh_port_fallback": flow["ssh_port_fallback"],
+        "flow_ssh_detect_source": flow["ssh_detect_source"],
+        "flow_ssh_banner": flow["ssh_banner"],
+
         "flow_risk_score": flow_risk_score,
         "flow_risk_level": flow_risk_level,
         "flow_risk_reason": flow_risk_reason,
@@ -1157,12 +1216,13 @@ def format_headers(p, n):
 
 
 def detect_flow_protocol_hint(flow):
-    if flow.get("tls_sni"):
-        return "tls"
 
     # strongest = payload-confirmed
     if flow.get("http_payload_detected", 0):
         return "http"
+    
+    if flow.get("tls_sni"):
+        return "tls"
 
     if flow.get("tls_payload_detected", 0):
         return "tls"
@@ -1173,6 +1233,9 @@ def detect_flow_protocol_hint(flow):
 
     if flow.get("tls_port_fallback", 0):
         return "tls"
+
+    if flow.get("ssh_payload_detected", 0):
+        return "ssh"
 
     if flow.get("ssh_seen", 0):
         return "ssh"
@@ -1690,8 +1753,13 @@ def export_flows_csv(path="flows.csv"):
             "tls_detect_source": f["tls_detect_source"],
             "tls_sni": f["tls_sni"],
 
-            "dns_seen": f["dns_seen"],
             "ssh_seen": f["ssh_seen"],
+            "ssh_payload_detected": f["ssh_payload_detected"],
+            "ssh_port_fallback": f["ssh_port_fallback"],
+            "ssh_detect_source": f["ssh_detect_source"],
+            "ssh_banner": f["ssh_banner"],
+
+            "dns_seen": f["dns_seen"],
             "smb_seen": f["smb_seen"],
 
             "syn_seen": f["syn_seen"],
@@ -1752,8 +1820,13 @@ def export_flows_csv(path="flows.csv"):
             "flow_tls_detect_source": f["tls_detect_source"],
             "flow_tls_sni": flow_stats["tls_sni"],
 
-            "flow_dns_seen": flow_stats["dns_seen"],
             "flow_ssh_seen": flow_stats["ssh_seen"],
+            "flow_ssh_payload_detected": f["ssh_payload_detected"],
+            "flow_ssh_port_fallback": f["ssh_port_fallback"],
+            "flow_ssh_detect_source": f["ssh_detect_source"],
+            "flow_ssh_banner": f["ssh_banner"],
+
+            "flow_dns_seen": flow_stats["dns_seen"],
             "flow_smb_seen": flow_stats["smb_seen"],
 
             "flow_syn_seen": flow_stats["syn_seen"],

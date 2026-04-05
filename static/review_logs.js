@@ -125,7 +125,8 @@ function loadProtocolPage(page = 1) {
                     card.innerHTML += `
                         <div class="protocol-block">
                             <div><strong>Protocol:</strong> SSH</div>
-                            <div><strong>Detection Source:</strong> port</div>
+                            <div><strong>SSH Banner:</strong> ${row.flow_ssh_banner || "N/A"}</div>
+                            <div><strong>Detection Source:</strong> ${row.flow_ssh_detect_source || "N/A"}</div>
                         </div>
                     `;
                 }

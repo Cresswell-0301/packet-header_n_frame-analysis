@@ -403,6 +403,10 @@ def get_protocol_evidence():
         'flow_tls_sni',
 
         'flow_ssh_seen',
+        'flow_ssh_payload_detected',
+        'flow_ssh_port_fallback',
+        'flow_ssh_detect_source',
+        'flow_ssh_banner',
 
         'flow_risk_score',
         'flow_risk_level',
@@ -433,10 +437,7 @@ def get_protocol_evidence():
             protocol_df.get('flow_tls_sni', '').fillna('').astype(str).str.strip() != ''
         ) |
         (
-            pd.to_numeric(protocol_df.get('flow_ssh_seen', 0), errors='coerce').fillna(0) > 0
-        ) |
-        (
-            protocol_df.get('flow_protocol_hint', '').fillna('').astype(str).str.lower() == 'ssh'
+            pd.to_numeric(protocol_df.get('flow_ssh_payload_detected', 0), errors='coerce').fillna(0) > 0
         )
     ]
 
