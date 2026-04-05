@@ -297,15 +297,27 @@ flows = defaultdict(lambda: {
     "ssh_seen": 0, # 22
     "smb_seen": 0, # 445
 
+    # protocol evidence source
+    "http_payload_detected": 0,
+    "http_port_fallback": 0,
+    "tls_payload_detected": 0,
+    "tls_port_fallback": 0,
+
     # HTTP details
     "http_method": "",
     "http_host": "",
     "http_path": "",
+    "http_buffer": b"",
+    "http_done": 0,
 
     # TLS details
     "tls_sni": "",
     "tls_buffer": b"",
     "tls_sni_done": 0,
+
+    # source labels
+    "http_detect_source": "",
+    "tls_detect_source": "",
 
     # ports / endpoints
     "sport_set": set(),
@@ -397,6 +409,12 @@ FEATURE_COLS = [
     "flow_unique_dports",
     "flow_protocol_hint",
     "flow_http_seen",
+    "flow_http_payload_detected",
+    "flow_http_port_fallback",
+    "flow_http_detect_source",
+    "flow_tls_payload_detected",
+    "flow_tls_port_fallback",
+    "flow_tls_detect_source",
     "flow_http_method",
     "flow_http_host",
     "flow_http_path",
@@ -575,33 +593,62 @@ def update_flow_stats(pkt, rawlen):
 
         payload = bytes(pkt[Raw].load) if Raw in pkt else b""
 
-        # HTTP detection from payload
-        method, host, path = parse_http(payload)
-        if method and method != "RESP":
-            f["http_seen"] = 1
+        # HTTP detection
+        http_port_match = sport in (80, 8080, 8000, 8888) or dport in (80, 8080, 8000, 8888)
+        
+        if not f.get("http_done", 0):
 
-            if not f["http_method"]:
-                f["http_method"] = method
-            if host and not f["http_host"]:
-                f["http_host"] = host
-            if path and not f["http_path"]:
-                f["http_path"] = path
+            # only buffer likely HTTP traffic
+            if http_port_match and payload:
+                f["http_buffer"] += payload
 
-        # HTTP detection from HTTP response line
-        elif method == "RESP":
-            f["http_seen"] = 1
-            if not f["http_method"]:
-                f["http_method"] = "RESP"
-            if not f["http_path"]:
-                f["http_path"] = path or ""
+            # limit buffer size
+            if len(f["http_buffer"]) > 4096:
+                f["http_buffer"] = f["http_buffer"][-4096:]
 
-        # HTTP detection by port only
-        elif 80 in (sport, dport):
+            # try parse once full header exists
+            if b"\r\n\r\n" in f["http_buffer"]:
+                method, host, path = parse_http(f["http_buffer"])
+
+                if method and method != "RESP":
+                    f["http_seen"] = 1
+                    f["http_payload_detected"] = 1
+                    f["http_port_fallback"] = 0
+                    f["http_detect_source"] = "payload"
+
+                    if not f["http_method"]:
+                        f["http_method"] = method
+                    if host and not f["http_host"]:
+                        f["http_host"] = host
+                    if path and not f["http_path"]:
+                        f["http_path"] = path
+
+                    f["http_done"] = 1
+                    f["http_buffer"] = b""
+
+                elif method == "RESP":
+                    f["http_seen"] = 1
+                    f["http_payload_detected"] = 1
+                    f["http_port_fallback"] = 0
+                    f["http_detect_source"] = "payload"
+
+                    if not f["http_method"]:
+                        f["http_method"] = "RESP"
+                    if not f["http_path"]:
+                        f["http_path"] = path or ""
+
+                    f["http_done"] = 1
+                    f["http_buffer"] = b""
+
+        # fallback only if no payload detection
+        if http_port_match and not f["http_payload_detected"]:
             f["http_seen"] = 1
+            f["http_port_fallback"] = 1
+            if not f["http_detect_source"]:
+                f["http_detect_source"] = "port"
 
         # TLS detection
-        if 443 in (sport, dport):
-            f["tls_seen"] = 1
+        tls_port_match = 443 in (sport, dport)
 
         if not f["tls_sni_done"]:
             if dport == 443 and payload and len(payload) >= 6 and payload[0] == 0x16 and payload[5] == 0x01:
@@ -621,11 +668,22 @@ def update_flow_stats(pkt, rawlen):
                     sni = parse_tls_sni(candidate)
 
                     if sni:
+                        f["tls_seen"] = 1
+                        f["tls_payload_detected"] = 1
+                        f["tls_port_fallback"] = 0
                         f["tls_sni"] = sni
                         f["reasons"].add(f"tls_sni:{sni}")
+                        f["tls_detect_source"] = "payload"
 
                     f["tls_sni_done"] = 1
                     f["tls_buffer"] = b""
+
+        # only fallback to port when payload proof was NOT found
+        if tls_port_match and not f["tls_payload_detected"]:
+            f["tls_seen"] = 1
+            f["tls_port_fallback"] = 1
+            if not f["tls_detect_source"]:
+                f["tls_detect_source"] = "port"
 
         # Other protocols
         if 22 in (sport, dport):
@@ -674,12 +732,21 @@ def flow_stats_for(pkt):
         "unusual_dscp_count": f["unusual_dscp_count"],
         "unique_sports": len(f["sport_set"]),
         "unique_dports": len(f["dport_set"]),
+
         "http_seen": f["http_seen"],
+        "http_payload_detected": f["http_payload_detected"],
+        "http_port_fallback": f["http_port_fallback"],
+        "http_detect_source": f["http_detect_source"],
         "http_method": f["http_method"],
         "http_host": f["http_host"],
         "http_path": f["http_path"],
+
         "tls_seen": f["tls_seen"],
+        "tls_payload_detected": f["tls_payload_detected"],
+        "tls_port_fallback": f["tls_port_fallback"],
+        "tls_detect_source": f["tls_detect_source"],
         "tls_sni": f["tls_sni"],
+        
         "dns_seen": f["dns_seen"],
         "ssh_seen": f["ssh_seen"],
         "smb_seen": f["smb_seen"],
@@ -879,12 +946,22 @@ def feature_row(n, pkt, raw):
             "unusual_dscp_count": 0,
             "unique_sports": 0, 
             "unique_dports": 0,
+
             "http_seen": 0, 
+            "http_payload_detected": 0,
+            "http_port_fallback": 0,
+            "http_detect_source": "",
             "http_method": "",
             "http_host": "",
             "http_path": "",
+            "http_buffer": b"",
+            "http_done": 0,
+
             "tls_seen": 0, 
             "tls_sni": "",
+            "tls_payload_detected": 0,
+            "tls_port_fallback": 0,
+            "tls_detect_source": "",
 
             "dns_seen": 0, 
             "ssh_seen": 0, 
@@ -996,12 +1073,21 @@ def feature_row(n, pkt, raw):
         "flow_unique_sports": flow["unique_sports"],
         "flow_unique_dports": flow["unique_dports"],
         "flow_protocol_hint": flow_protocol_hint,
+
         "flow_http_seen": flow["http_seen"],
+        "flow_http_payload_detected": flow["http_payload_detected"],
+        "flow_http_port_fallback": flow["http_port_fallback"],
+        "flow_http_detect_source": flow["http_detect_source"],
         "flow_http_method": flow["http_method"],
         "flow_http_host": flow["http_host"],
         "flow_http_path": flow["http_path"],
+
         "flow_tls_seen": flow["tls_seen"],
+        "flow_tls_payload_detected": flow["tls_payload_detected"],
+        "flow_tls_port_fallback": flow["tls_port_fallback"],
+        "flow_tls_detect_source": flow["tls_detect_source"],
         "flow_tls_sni": flow["tls_sni"],
+
         "flow_risk_score": flow_risk_score,
         "flow_risk_level": flow_risk_level,
         "flow_risk_reason": flow_risk_reason,
@@ -1071,21 +1157,32 @@ def format_headers(p, n):
 
 
 def detect_flow_protocol_hint(flow):
-    if flow.get("http_seen", 0):
-        return "http"
-    
-    if flow.get("tls_seen", 0):
+    if flow.get("tls_sni"):
         return "tls"
-    
+
+    # strongest = payload-confirmed
+    if flow.get("http_payload_detected", 0):
+        return "http"
+
+    if flow.get("tls_payload_detected", 0):
+        return "tls"
+
+    # then port fallback
+    if flow.get("http_port_fallback", 0):
+        return "http"
+
+    if flow.get("tls_port_fallback", 0):
+        return "tls"
+
     if flow.get("ssh_seen", 0):
         return "ssh"
-    
+
     if flow.get("smb_seen", 0):
         return "smb"
-    
+
     if flow.get("dns_seen", 0):
         return "dns"
-    
+
     return "unknown"
 
 
@@ -1361,8 +1458,6 @@ def score_row(row, api_user, api_key):
     for candidate_ip in (row.get("ip_src"), row.get("ip_dst")):
         lookup, reason = scamalytics_lookup(candidate_ip, api_user, api_key)
 
-        # print(f"[DEBUG] ip={candidate_ip} reason={reason} lookup={lookup}")
-
         if lookup and lookup.get("ip_fraud_score") is not None:
             return (
                 lookup["ip_fraud_score"], 
@@ -1582,12 +1677,19 @@ def export_flows_csv(path="flows.csv"):
             "unique_dports": len(f["dport_set"]),
 
             "http_seen": f["http_seen"],
+            "http_payload_detected": f["http_payload_detected"],
+            "http_port_fallback": f["http_port_fallback"],
+            "http_detect_source": f["http_detect_source"],
             "http_method": f["http_method"],
             "http_host": f["http_host"],
             "http_path": f["http_path"],
-            "tls_sni": f["tls_sni"],
 
             "tls_seen": f["tls_seen"],
+            "tls_payload_detected": f["tls_payload_detected"],
+            "tls_port_fallback": f["tls_port_fallback"],
+            "tls_detect_source": f["tls_detect_source"],
+            "tls_sni": f["tls_sni"],
+
             "dns_seen": f["dns_seen"],
             "ssh_seen": f["ssh_seen"],
             "smb_seen": f["smb_seen"],
@@ -1637,11 +1739,17 @@ def export_flows_csv(path="flows.csv"):
             "flow_unique_dports": flow_stats["unique_dports"],
 
             "flow_http_seen": flow_stats["http_seen"],
+            "flow_http_payload_detected": f["http_payload_detected"],
+            "flow_http_port_fallback": f["http_port_fallback"],
+            "flow_http_detect_source": f["http_detect_source"],
             "flow_http_method": flow_stats["http_method"],
             "flow_http_host": flow_stats["http_host"],
             "flow_http_path": flow_stats["http_path"],
 
             "flow_tls_seen": flow_stats["tls_seen"],
+            "flow_tls_payload_detected": f["tls_payload_detected"],
+            "flow_tls_port_fallback": f["tls_port_fallback"],
+            "flow_tls_detect_source": f["tls_detect_source"],
             "flow_tls_sni": flow_stats["tls_sni"],
 
             "flow_dns_seen": flow_stats["dns_seen"],
@@ -1670,6 +1778,7 @@ def main():
     ap.add_argument("-l", "--list", action="store_true")
     ap.add_argument("-i", "--iface",  default=DEFAULT_IFACE)
     ap.add_argument("-f", "--bpf", default="ip and tcp and (port 22 or port 80 or port 443 or port 445)")
+    # ap.add_argument("-f", "--bpf", default="ip and tcp and (port 22 or port 80 or port 443 or port 445 or port 8080 or port 8000)")
     ap.add_argument("-o", "--outfile", default="capture_live.pcap")
     ap.add_argument("--log", default="capture_live.txt")
     ap.add_argument("--features-csv", default="features.csv", help="CSV feature output")

@@ -98,6 +98,7 @@ def review_logs():
         'flow_rows': 0,
         'top_flows': [],
         'flow_risk_levels': {},
+        'protocol_evidence': [],
     }
 
     if scores_path.exists():
@@ -155,11 +156,26 @@ def review_logs():
                 }
 
             flow_cols = [c for c in [
-                'flow_src_ip', 'flow_dst_ip', 'flow_proto',
-                'flow_src_port', 'flow_dst_port',
-                'flow_pkts', 'flow_duration',
-                'flow_protocol_hint', 'flow_risk_score',
-                'flow_risk_level', 'flow_risk_reason'
+                'flow_src_ip', 
+                'flow_dst_ip', 
+                'flow_proto',
+                'flow_src_port', 
+                'flow_dst_port',
+                'flow_pkts', 
+                'flow_duration',
+                'flow_protocol_hint',
+
+                'flow_http_detect_source',
+                'flow_http_method',
+                'flow_http_host',
+                'flow_http_path',
+
+                'flow_tls_detect_source',
+                'flow_tls_sni',
+
+                'flow_risk_score',
+                'flow_risk_level',
+                'flow_risk_reason'
             ] if c in flow_df.columns]
 
             if flow_cols:
@@ -174,6 +190,55 @@ def review_logs():
                 )
 
                 summary['top_flows'] = ranked_flows[flow_cols].head(10).fillna('').to_dict(orient='records')
+
+                protocol_cols = [c for c in [
+                    'flow_src_ip',
+                    'flow_dst_ip',
+                    'flow_src_port',
+                    'flow_dst_port',
+                    'flow_protocol_hint',
+                    'flow_http_detect_source',
+                    'flow_http_method',
+                    'flow_http_host',
+                    'flow_http_path',
+                    'flow_tls_detect_source',
+                    'flow_tls_sni',
+                    'flow_risk_score',
+                    'flow_risk_level',
+                ] if c in flow_df.columns]
+
+                if protocol_cols:
+                    protocol_df = flow_df.copy()
+
+                    if 'flow_risk_score' in protocol_df.columns:
+                        protocol_df['flow_risk_score_num'] = pd.to_numeric(
+                            protocol_df['flow_risk_score'], errors='coerce'
+                        ).fillna(-1)
+
+                        protocol_df = protocol_df.sort_values(
+                            by='flow_risk_score_num', ascending=False
+                        )
+
+                    # keep only rows that actually contain HTTP/TLS evidence
+                    protocol_df = protocol_df[
+                        (
+                            protocol_df.get('flow_http_method', '').fillna('').astype(str).str.strip() != ''
+                        ) |
+                        (
+                            protocol_df.get('flow_http_host', '').fillna('').astype(str).str.strip() != ''
+                        ) |
+                        (
+                            protocol_df.get('flow_tls_sni', '').fillna('').astype(str).str.strip() != ''
+                        ) |
+                        (
+                            protocol_df.get('flow_http_detect_source', '').fillna('').astype(str).str.strip() != ''
+                        ) |
+                        (
+                            protocol_df.get('flow_tls_detect_source', '').fillna('').astype(str).str.strip() != ''
+                        )
+                    ]
+
+                    summary['protocol_evidence'] = protocol_df[protocol_cols].head(10).fillna('').to_dict(orient='records')
 
         except Exception:
             pass
