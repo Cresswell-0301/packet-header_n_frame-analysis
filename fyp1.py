@@ -1778,7 +1778,6 @@ def main():
     ap.add_argument("-l", "--list", action="store_true")
     ap.add_argument("-i", "--iface",  default=DEFAULT_IFACE)
     ap.add_argument("-f", "--bpf", default="ip and tcp and (port 22 or port 80 or port 443 or port 445)")
-    # ap.add_argument("-f", "--bpf", default="ip and tcp and (port 22 or port 80 or port 443 or port 445 or port 8080 or port 8000)")
     ap.add_argument("-o", "--outfile", default="capture_live.pcap")
     ap.add_argument("--log", default="capture_live.txt")
     ap.add_argument("--features-csv", default="features.csv", help="CSV feature output")

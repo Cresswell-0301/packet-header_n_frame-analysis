@@ -71,6 +71,73 @@ function loadFlowPage(page = 1) {
     });
 }
 
+function loadProtocolPage(page = 1) {
+    fetch(`/api/protocol-evidence?page=${page}`)
+        .then((res) => res.json())
+        .then((json) => {
+            const grid = document.getElementById("protocol-grid");
+            grid.innerHTML = "";
+
+            if (!json.data || json.data.length === 0) {
+                grid.innerHTML = "<div class='muted'>No protocol evidence available.</div>";
+                renderPagination("#protocol-pagination", 1, 1, loadProtocolPage);
+                return;
+            }
+
+            json.data.forEach((row) => {
+                const card = document.createElement("div");
+                card.className = "protocol-card";
+
+                card.innerHTML = `
+                    <div class="protocol-card-header">
+                        <strong>${(row.flow_protocol_hint || "UNKNOWN").toUpperCase()}</strong>
+                        <span class="protocol-risk">${row.flow_risk_level || "N/A"}</span>
+                    </div>
+
+                    <div class="protocol-meta">
+                        <div><strong>Flow:</strong> ${row.flow_src_ip}:${row.flow_src_port} → ${row.flow_dst_ip}:${row.flow_dst_port}</div>
+                        <div><strong>Risk Score:</strong> ${row.flow_risk_score}</div>
+                    </div>
+                `;
+
+                // HTTP
+                if (row.flow_http_method || row.flow_http_host || row.flow_http_path) {
+                    card.innerHTML += `
+                        <div class="protocol-block">
+                            <div><strong>HTTP Method:</strong> ${row.flow_http_method || "N/A"}</div>
+                            <div><strong>HTTP Host:</strong> ${row.flow_http_host || "N/A"}</div>
+                            <div><strong>HTTP Path:</strong> ${row.flow_http_path || "N/A"}</div>
+                        </div>
+                    `;
+                }
+
+                // TLS
+                if (row.flow_tls_sni) {
+                    card.innerHTML += `
+                        <div class="protocol-block">
+                            <div><strong>TLS SNI:</strong> ${row.flow_tls_sni}</div>
+                        </div>
+                    `;
+                }
+
+                // SSH
+                if (row.flow_protocol_hint === "ssh" || row.flow_ssh_seen) {
+                    card.innerHTML += `
+                        <div class="protocol-block">
+                            <div><strong>Protocol:</strong> SSH</div>
+                            <div><strong>Detection Source:</strong> port</div>
+                        </div>
+                    `;
+                }
+
+                grid.appendChild(card);
+            });
+
+            const totalPages = Math.ceil(json.total / json.per_page);
+            renderPagination("#protocol-pagination", json.page, totalPages, loadProtocolPage);
+        });
+}
+
 function renderPagination(containerSelector, currentPage, totalPages, onPageClick) {
     const pagination = document.querySelector(containerSelector);
 
@@ -132,4 +199,5 @@ function renderPagination(containerSelector, currentPage, totalPages, onPageClic
 document.addEventListener("DOMContentLoaded", () => {
     loadPage(1);
     loadFlowPage(1);
+    loadProtocolPage(1);
 });

@@ -197,12 +197,17 @@ def review_logs():
                     'flow_src_port',
                     'flow_dst_port',
                     'flow_protocol_hint',
+
                     'flow_http_detect_source',
                     'flow_http_method',
                     'flow_http_host',
                     'flow_http_path',
+
                     'flow_tls_detect_source',
                     'flow_tls_sni',
+
+                    'flow_ssh_seen',
+
                     'flow_risk_score',
                     'flow_risk_level',
                 ] if c in flow_df.columns]
@@ -235,10 +240,16 @@ def review_logs():
                         ) |
                         (
                             protocol_df.get('flow_tls_detect_source', '').fillna('').astype(str).str.strip() != ''
+                        ) |
+                        (
+                            pd.to_numeric(protocol_df.get('flow_ssh_seen', 0), errors='coerce').fillna(0) > 0
+                        ) |
+                        (
+                            protocol_df.get('flow_protocol_hint', '').fillna('').astype(str).str.strip().str.lower() == 'ssh'
                         )
                     ]
 
-                    summary['protocol_evidence'] = protocol_df[protocol_cols].head(10).fillna('').to_dict(orient='records')
+                    # summary['protocol_evidence'] = protocol_df[protocol_cols].head(10).fillna('').to_dict(orient='records')
 
         except Exception:
             pass
@@ -356,6 +367,93 @@ def get_flows():
     page = max(1, int(request.args.get('page', 1)))
     per_page = 50
     return get_paginated_csv_response(DATA_DIR / 'flows.csv', page, per_page)
+
+
+@app.get('/api/protocol-evidence')
+def get_protocol_evidence():
+    page = max(1, int(request.args.get('page', 1)))
+    per_page = 9
+
+    flows_path = DATA_DIR / 'flows.csv'
+
+    if not flows_path.exists():
+        return jsonify({
+            'data': [],
+            'columns': [],
+            'total': 0,
+            'page': page,
+            'per_page': per_page
+        })
+
+    df = pd.read_csv(flows_path)
+
+    protocol_cols = [c for c in [
+        'flow_src_ip',
+        'flow_dst_ip',
+        'flow_src_port',
+        'flow_dst_port',
+        'flow_protocol_hint',
+
+        'flow_http_detect_source',
+        'flow_http_method',
+        'flow_http_host',
+        'flow_http_path',
+
+        'flow_tls_detect_source',
+        'flow_tls_sni',
+
+        'flow_ssh_seen',
+
+        'flow_risk_score',
+        'flow_risk_level',
+    ] if c in df.columns]
+
+    protocol_df = df.copy()
+
+    # sort by risk
+    protocol_df['flow_risk_score_num'] = pd.to_numeric(
+        protocol_df.get('flow_risk_score', 0),
+        errors='coerce'
+    ).fillna(-1)
+
+    protocol_df = protocol_df.sort_values(
+        by='flow_risk_score_num',
+        ascending=False
+    )
+
+    # FILTER (same logic as before)
+    protocol_df = protocol_df[
+        (
+            protocol_df.get('flow_http_method', '').fillna('').astype(str).str.strip() != ''
+        ) |
+        (
+            protocol_df.get('flow_http_host', '').fillna('').astype(str).str.strip() != ''
+        ) |
+        (
+            protocol_df.get('flow_tls_sni', '').fillna('').astype(str).str.strip() != ''
+        ) |
+        (
+            pd.to_numeric(protocol_df.get('flow_ssh_seen', 0), errors='coerce').fillna(0) > 0
+        ) |
+        (
+            protocol_df.get('flow_protocol_hint', '').fillna('').astype(str).str.lower() == 'ssh'
+        )
+    ]
+
+    total = len(protocol_df)
+
+    start = (page - 1) * per_page
+    end = start + per_page
+
+    data = protocol_df.iloc[start:end][protocol_cols].fillna('').to_dict(orient='records')
+
+    return jsonify({
+        'data': data,
+        'columns': protocol_cols,
+        'total': int(total),
+        'page': page,
+        'per_page': per_page
+    })
 
 
 if __name__ == '__main__':

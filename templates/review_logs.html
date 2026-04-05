@@ -118,44 +118,6 @@
                 </section>
 
                 <section class="review-section panel">
-                    <h2>Protocol Evidence Summary</h2>
-
-                    {% if summary.protocol_evidence %}
-                    <div class="protocol-grid">
-                        {% for row in summary.protocol_evidence %}
-                        <div class="protocol-card">
-                            <div class="protocol-card-header">
-                                <strong>{{ row.flow_protocol_hint|upper if row.flow_protocol_hint else 'UNKNOWN' }}</strong>
-                                <span class="protocol-risk">{{ row.flow_risk_level|capitalize if row.flow_risk_level else 'N/A' }}</span>
-                            </div>
-
-                            <div class="protocol-meta">
-                                <div><strong>Flow:</strong> {{ row.flow_src_ip }}:{{ row.flow_src_port }} -> {{ row.flow_dst_ip }}:{{ row.flow_dst_port }}</div>
-                                <div><strong>Risk Score:</strong> {{ row.flow_risk_score }}</div>
-                            </div>
-
-                            {% if row.flow_protocol_hint == 'http' or row.flow_http_detect_source or row.flow_http_method or row.flow_http_host or row.flow_http_path %}
-                            <div class="protocol-block">
-                                <div><strong>HTTP Method:</strong> {{ row.flow_http_method if row.flow_http_method else 'N/A' }}</div>
-                                <div><strong>HTTP Host:</strong> {{ row.flow_http_host if row.flow_http_host else 'N/A' }}</div>
-                                <div><strong>HTTP Path:</strong> {{ row.flow_http_path if row.flow_http_path else 'N/A' }}</div>
-                                <div><strong>Detection Source:</strong> {{ row.flow_http_detect_source if row.flow_http_detect_source else 'N/A' }}</div>
-                            </div>
-                            {% endif %} {% if row.flow_tls_sni or row.flow_tls_detect_source %}
-                            <div class="protocol-block">
-                                <div><strong>TLS SNI:</strong> {{ row.flow_tls_sni if row.flow_tls_sni else 'N/A' }}</div>
-                                <div><strong>Detection Source:</strong> {{ row.flow_tls_detect_source if row.flow_tls_detect_source else 'N/A' }}</div>
-                            </div>
-                            {% endif %}
-                        </div>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <div class="muted">No protocol evidence available.</div>
-                    {% endif %}
-                </section>
-
-                <section class="review-section panel">
                     <h2>Top 10 Highest Risk Flows</h2>
 
                     {% if summary.top_flows %}
@@ -182,6 +144,16 @@
                     {% else %}
                     <div class="muted">No flow records available.</div>
                     {% endif %}
+                </section>
+
+                <section class="review-section panel">
+                    <h2>Protocol Evidence Summary</h2>
+
+                    <div id="protocol-grid" class="protocol-grid">
+                        <div class="muted">Loading protocol evidence...</div>
+                    </div>
+
+                    <div id="protocol-pagination" class="pagination"></div>
                 </section>
 
                 <section class="review-section panel">
