@@ -95,7 +95,7 @@ function loadProtocolPage(page = 1) {
                     </div>
 
                     <div class="protocol-meta">
-                        <div><strong>Flow:</strong> ${row.flow_src_ip}:${row.flow_src_port} → ${row.flow_dst_ip}:${row.flow_dst_port}</div>
+                        <div><strong>Flow:</strong> ${row.flow_src_ip}:${row.flow_src_port} -> ${row.flow_dst_ip}:${row.flow_dst_port}</div>
                         <div><strong>Risk Score:</strong> ${row.flow_risk_score}</div>
                     </div>
                 `;
