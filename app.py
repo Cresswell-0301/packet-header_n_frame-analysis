@@ -371,6 +371,8 @@ def get_flows():
 
 @app.get('/api/protocol-evidence')
 def get_protocol_evidence():
+    protocol = request.args.get('protocol', 'all').strip().lower()
+    
     page = max(1, int(request.args.get('page', 1)))
     per_page = 9
 
@@ -431,7 +433,7 @@ def get_protocol_evidence():
         ascending=False
     )
 
-    # FILTER (same logic as before)
+    # base evidence filter
     protocol_df = protocol_df[
         (
             protocol_df.get('flow_http_method', '').fillna('').astype(str).str.strip() != ''
@@ -444,11 +446,67 @@ def get_protocol_evidence():
         ) |
         (
             pd.to_numeric(protocol_df.get('flow_ssh_payload_detected', 0), errors='coerce').fillna(0) > 0
-        ) | 
+        ) |
         (
             pd.to_numeric(protocol_df.get('flow_smb_payload_detected', 0), errors='coerce').fillna(0) > 0
+        ) |
+        (
+            protocol_df.get('flow_protocol_hint', '').fillna('').astype(str).str.strip().str.lower().isin(['http', 'tls', 'ssh', 'smb'])
         )
     ]
+
+    # protocol-specific filter
+    if protocol == 'http':
+        protocol_df = protocol_df[
+            (
+                protocol_df.get('flow_protocol_hint', '').fillna('').astype(str).str.strip().str.lower() == 'http'
+            ) |
+            (
+                protocol_df.get('flow_http_method', '').fillna('').astype(str).str.strip() != ''
+            ) |
+            (
+                protocol_df.get('flow_http_host', '').fillna('').astype(str).str.strip() != ''
+            )
+        ]
+
+    elif protocol == 'tls':
+        protocol_df = protocol_df[
+            (
+                protocol_df.get('flow_protocol_hint', '').fillna('').astype(str).str.strip().str.lower() == 'tls'
+            ) |
+            (
+                protocol_df.get('flow_tls_sni', '').fillna('').astype(str).str.strip() != ''
+            ) |
+            (
+                protocol_df.get('flow_tls_detect_source', '').fillna('').astype(str).str.strip() != ''
+            )
+        ]
+
+    elif protocol == 'ssh':
+        protocol_df = protocol_df[
+            (
+                protocol_df.get('flow_protocol_hint', '').fillna('').astype(str).str.strip().str.lower() == 'ssh'
+            ) |
+            (
+                pd.to_numeric(protocol_df.get('flow_ssh_seen', 0), errors='coerce').fillna(0) > 0
+            ) |
+            (
+                pd.to_numeric(protocol_df.get('flow_ssh_payload_detected', 0), errors='coerce').fillna(0) > 0
+            )
+        ]
+
+    elif protocol == 'smb':
+        protocol_df = protocol_df[
+            (
+                protocol_df.get('flow_protocol_hint', '').fillna('').astype(str).str.strip().str.lower() == 'smb'
+            ) |
+            (
+                pd.to_numeric(protocol_df.get('flow_smb_seen', 0), errors='coerce').fillna(0) > 0
+            ) |
+            (
+                pd.to_numeric(protocol_df.get('flow_smb_payload_detected', 0), errors='coerce').fillna(0) > 0
+            )
+        ]
 
     total = len(protocol_df)
 

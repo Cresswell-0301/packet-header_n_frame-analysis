@@ -147,7 +147,20 @@
                 </section>
 
                 <section class="review-section panel">
-                    <h2>Protocol Evidence Summary</h2>
+                    <div class="section-header-with-filter">
+                        <h2 id="protocol-title">All Protocol Evidence Summary</h2>
+
+                        <div class="protocol-filter-group">
+                            <label for="protocol-filter"><strong>Filter:</strong></label>
+                            <select id="protocol-filter" class="protocol-filter-select">
+                                <option value="all">All</option>
+                                <option value="ssh">SSH</option>
+                                <option value="http">HTTP</option>
+                                <option value="tls">HTTPS (TLS)</option>
+                                <option value="smb">SMB</option>
+                            </select>
+                        </div>
+                    </div>
 
                     <div id="protocol-grid" class="protocol-grid">
                         <div class="muted">Loading protocol evidence...</div>

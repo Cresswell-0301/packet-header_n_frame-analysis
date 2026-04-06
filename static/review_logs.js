@@ -72,7 +72,12 @@ function loadFlowPage(page = 1) {
 }
 
 function loadProtocolPage(page = 1) {
-    fetch(`/api/protocol-evidence?page=${page}`)
+    const filterEl = document.getElementById("protocol-filter");
+    const protocol = filterEl ? filterEl.value : "all";
+
+    updateProtocolTitle(protocol);
+
+    fetch(`/api/protocol-evidence?page=${page}&protocol=${encodeURIComponent(protocol)}`)
         .then((res) => res.json())
         .then((json) => {
             const grid = document.getElementById("protocol-grid");
@@ -100,31 +105,30 @@ function loadProtocolPage(page = 1) {
 
                     <div class="protocol-meta">
                         <div><strong>Flow:</strong> ${row.flow_src_ip}:${row.flow_src_port} -> ${row.flow_dst_ip}:${row.flow_dst_port}</div>
-                        <div><strong>Risk Score:</strong> ${row.flow_risk_score}</div>
+                        <div><strong>Risk Score:</strong> ${row.flow_risk_score || "N/A"}</div>
                     </div>
                 `;
 
-                // HTTP
                 if (row.flow_http_method || row.flow_http_host || row.flow_http_path) {
                     card.innerHTML += `
                         <div class="protocol-block">
                             <div><strong>HTTP Method:</strong> ${row.flow_http_method || "N/A"}</div>
                             <div><strong>HTTP Host:</strong> ${row.flow_http_host || "N/A"}</div>
                             <div><strong>HTTP Path:</strong> ${row.flow_http_path || "N/A"}</div>
+                            <div><strong>Detection Source:</strong> ${row.flow_http_detect_source || "N/A"}</div>
                         </div>
                     `;
                 }
 
-                // TLS
                 if (row.flow_tls_sni) {
                     card.innerHTML += `
                         <div class="protocol-block">
                             <div><strong>TLS SNI:</strong> ${row.flow_tls_sni}</div>
+                            <div><strong>Detection Source:</strong> ${row.flow_tls_detect_source || "N/A"}</div>
                         </div>
                     `;
                 }
 
-                // SSH
                 if (row.flow_protocol_hint === "ssh" || row.flow_ssh_seen) {
                     card.innerHTML += `
                         <div class="protocol-block">
@@ -135,7 +139,6 @@ function loadProtocolPage(page = 1) {
                     `;
                 }
 
-                // SMB
                 if (row.flow_protocol_hint === "smb" || row.flow_smb_seen) {
                     card.innerHTML += `
                         <div class="protocol-block">
@@ -151,6 +154,11 @@ function loadProtocolPage(page = 1) {
 
             const totalPages = Math.ceil(json.total / json.per_page);
             renderPagination("#protocol-pagination", json.page, totalPages, loadProtocolPage);
+        })
+        .catch((error) => {
+            const grid = document.getElementById("protocol-grid");
+            grid.innerHTML = `<div class="muted">Failed to load protocol evidence: ${error.message}</div>`;
+            console.error("Failed to load protocol evidence:", error);
         });
 }
 
@@ -212,8 +220,29 @@ function renderPagination(containerSelector, currentPage, totalPages, onPageClic
     pagination.appendChild(createBtn("»", currentPage + 1, currentPage === totalPages));
 }
 
+function updateProtocolTitle(protocol) {
+    let label = "All";
+
+    if (protocol === "ssh") label = "SSH";
+    else if (protocol === "http") label = "HTTP";
+    else if (protocol === "tls") label = "HTTPS (TLS)";
+    else if (protocol === "smb") label = "SMB";
+
+    const titleEl = document.getElementById("protocol-title");
+    if (titleEl) {
+        titleEl.textContent = `${label} Protocol Evidence Summary`;
+    }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     loadPage(1);
     loadFlowPage(1);
     loadProtocolPage(1);
+
+    const protocolFilter = document.getElementById("protocol-filter");
+    if (protocolFilter) {
+        protocolFilter.addEventListener("change", () => {
+            loadProtocolPage(1);
+        });
+    }
 });

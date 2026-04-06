@@ -293,6 +293,31 @@ h3 {
     margin-bottom: 14px;
 }
 
+.section-header-with-filter {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.protocol-filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.protocol-filter-select {
+    min-width: 180px;
+    height: 36px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--white);
+    padding: 0 10px;
+    font-size: 13px;
+}
+
 .table-wrap-xy {
     width: 100%;
     max-width: 100%;
