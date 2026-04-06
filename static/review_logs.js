@@ -124,7 +124,8 @@ function loadProtocolPage(page = 1) {
             grid.innerHTML = "";
 
             if (!json.data || json.data.length === 0) {
-                grid.innerHTML = "<div class='muted'>No protocol evidence available.</div>";
+                const message = buildNoDataMessage(protocol, detectSource);
+                grid.innerHTML = `<div class='muted'>${message}</div>`;
                 renderPagination("#protocol-pagination", 1, 1, loadProtocolPage);
                 return;
             }
@@ -203,6 +204,27 @@ function loadProtocolPage(page = 1) {
             grid.innerHTML = `<div class="muted">Failed to load protocol evidence: ${error.message}</div>`;
             console.error("Failed to load protocol evidence:", error);
         });
+}
+
+function buildNoDataMessage(protocol, detectSource) {
+    let protocolLabel = "";
+
+    if (protocol === "ssh") protocolLabel = "SSH ";
+    else if (protocol === "http") protocolLabel = "HTTP ";
+    else if (protocol === "tls") protocolLabel = "HTTPS (TLS) ";
+    else if (protocol === "smb") protocolLabel = "SMB ";
+
+    let message = `No ${protocolLabel}protocol evidence found`;
+
+    if (detectSource === "payload") {
+        message += " under (Payload-Based)";
+    } else if (detectSource === "port") {
+        message += " under (Port-Based)";
+    }
+
+    message += ".";
+
+    return message;
 }
 
 function renderPagination(containerSelector, currentPage, totalPages, onPageClick) {
