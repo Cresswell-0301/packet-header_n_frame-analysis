@@ -308,6 +308,13 @@ h3 {
     gap: 8px;
 }
 
+.protocol-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
 .protocol-filter-select {
     min-width: 180px;
     height: 36px;

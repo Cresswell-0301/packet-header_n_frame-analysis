@@ -150,15 +150,26 @@
                     <div class="section-header-with-filter">
                         <h2 id="protocol-title">All Protocol Evidence Summary</h2>
 
-                        <div class="protocol-filter-group">
-                            <label for="protocol-filter"><strong>Filter:</strong></label>
-                            <select id="protocol-filter" class="protocol-filter-select">
-                                <option value="all">All</option>
-                                <option value="ssh">SSH</option>
-                                <option value="http">HTTP</option>
-                                <option value="tls">HTTPS (TLS)</option>
-                                <option value="smb">SMB</option>
-                            </select>
+                        <div class="protocol-filter-row">
+                            <div class="protocol-filter-group">
+                                <label for="protocol-filter"><strong>Protocol:</strong></label>
+                                <select id="protocol-filter" class="protocol-filter-select">
+                                    <option value="all">All</option>
+                                    <option value="ssh">SSH</option>
+                                    <option value="http">HTTP</option>
+                                    <option value="tls">HTTPS (TLS)</option>
+                                    <option value="smb">SMB</option>
+                                </select>
+                            </div>
+
+                            <div class="protocol-filter-group">
+                                <label for="detect-source-filter"><strong>Source:</strong></label>
+                                <select id="detect-source-filter" class="protocol-filter-select">
+                                    <option value="all">All Sources</option>
+                                    <option value="payload">Payload</option>
+                                    <option value="port">Port</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
 

@@ -372,6 +372,7 @@ def get_flows():
 @app.get('/api/protocol-evidence')
 def get_protocol_evidence():
     protocol = request.args.get('protocol', 'all').strip().lower()
+    detect_source = request.args.get('detect_source', 'all').strip().lower()
     
     page = max(1, int(request.args.get('page', 1)))
     per_page = 9
@@ -505,6 +506,39 @@ def get_protocol_evidence():
             ) |
             (
                 pd.to_numeric(protocol_df.get('flow_smb_payload_detected', 0), errors='coerce').fillna(0) > 0
+            )
+        ]
+    
+    # detection source filter
+    if detect_source == 'payload':
+        protocol_df = protocol_df[
+            (
+                protocol_df.get('flow_http_detect_source', '').fillna('').astype(str).str.strip().str.lower() == 'payload'
+            ) |
+            (
+                protocol_df.get('flow_tls_detect_source', '').fillna('').astype(str).str.strip().str.lower() == 'payload'
+            ) |
+            (
+                protocol_df.get('flow_ssh_detect_source', '').fillna('').astype(str).str.strip().str.lower() == 'payload'
+            ) |
+            (
+                protocol_df.get('flow_smb_detect_source', '').fillna('').astype(str).str.strip().str.lower() == 'payload'
+            )
+        ]
+
+    elif detect_source == 'port':
+        protocol_df = protocol_df[
+            (
+                protocol_df.get('flow_http_detect_source', '').fillna('').astype(str).str.strip().str.lower() == 'port'
+            ) |
+            (
+                protocol_df.get('flow_tls_detect_source', '').fillna('').astype(str).str.strip().str.lower() == 'port'
+            ) |
+            (
+                protocol_df.get('flow_ssh_detect_source', '').fillna('').astype(str).str.strip().str.lower() == 'port'
+            ) |
+            (
+                protocol_df.get('flow_smb_detect_source', '').fillna('').astype(str).str.strip().str.lower() == 'port'
             )
         ]
 

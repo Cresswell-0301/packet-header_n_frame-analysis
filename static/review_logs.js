@@ -105,12 +105,15 @@ function buildSummary(row, proto) {
 }
 
 function loadProtocolPage(page = 1) {
-    const filterEl = document.getElementById("protocol-filter");
-    const protocol = filterEl ? filterEl.value : "all";
+    const protocolFilterEl = document.getElementById("protocol-filter");
+    const sourceFilterEl = document.getElementById("detect-source-filter");
 
-    updateProtocolTitle(protocol);
+    const protocol = protocolFilterEl ? protocolFilterEl.value : "all";
+    const detectSource = sourceFilterEl ? sourceFilterEl.value : "all";
 
-    fetch(`/api/protocol-evidence?page=${page}&protocol=${protocol}`)
+    updateProtocolTitle(protocol, detectSource);
+
+    fetch(`/api/protocol-evidence?page=${page}&protocol=${encodeURIComponent(protocol)}&detect_source=${encodeURIComponent(detectSource)}`)
         .then((res) => res.json())
         .then((json) => {
             const grid = document.getElementById("protocol-grid");
@@ -190,6 +193,11 @@ function loadProtocolPage(page = 1) {
 
             const totalPages = Math.ceil(json.total / json.per_page);
             renderPagination("#protocol-pagination", json.page, totalPages, loadProtocolPage);
+        })
+        .catch((error) => {
+            const grid = document.getElementById("protocol-grid");
+            grid.innerHTML = `<div class="muted">Failed to load protocol evidence: ${error.message}</div>`;
+            console.error("Failed to load protocol evidence:", error);
         });
 }
 
@@ -251,17 +259,25 @@ function renderPagination(containerSelector, currentPage, totalPages, onPageClic
     pagination.appendChild(createBtn("»", currentPage + 1, currentPage === totalPages));
 }
 
-function updateProtocolTitle(protocol) {
-    let label = "All";
+function updateProtocolTitle(protocol, detectSource = "all") {
+    let protocolLabel = "All";
 
-    if (protocol === "ssh") label = "SSH";
-    else if (protocol === "http") label = "HTTP";
-    else if (protocol === "tls") label = "HTTPS (TLS)";
-    else if (protocol === "smb") label = "SMB";
+    if (protocol === "ssh") protocolLabel = "SSH";
+    else if (protocol === "http") protocolLabel = "HTTP";
+    else if (protocol === "tls") protocolLabel = "HTTPS (TLS)";
+    else if (protocol === "smb") protocolLabel = "SMB";
+
+    let title = `${protocolLabel} Protocol Evidence Summary`;
+
+    if (detectSource === "payload") {
+        title += " (Payload-Based)";
+    } else if (detectSource === "port") {
+        title += " (Port-Based)";
+    }
 
     const titleEl = document.getElementById("protocol-title");
     if (titleEl) {
-        titleEl.textContent = `${label} Protocol Evidence Summary`;
+        titleEl.textContent = title;
     }
 }
 
@@ -271,8 +287,16 @@ document.addEventListener("DOMContentLoaded", () => {
     loadProtocolPage(1);
 
     const protocolFilter = document.getElementById("protocol-filter");
+    const detectSourceFilter = document.getElementById("detect-source-filter");
+
     if (protocolFilter) {
         protocolFilter.addEventListener("change", () => {
+            loadProtocolPage(1);
+        });
+    }
+
+    if (detectSourceFilter) {
+        detectSourceFilter.addEventListener("change", () => {
             loadProtocolPage(1);
         });
     }
