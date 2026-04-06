@@ -88,9 +88,13 @@ function loadProtocolPage(page = 1) {
                 const card = document.createElement("div");
                 card.className = "protocol-card";
 
+                const proto = (row.flow_protocol_hint || "UNKNOWN").toLowerCase();
+
+                const displayProto = proto === "tls" ? "HTTPS (TLS)" : proto === "http" ? "HTTP" : proto === "ssh" ? "SSH" : proto === "smb" ? "SMB" : proto.toUpperCase();
+
                 card.innerHTML = `
                     <div class="protocol-card-header">
-                        <strong>${(row.flow_protocol_hint || "UNKNOWN").toUpperCase()}</strong>
+                        <strong>${displayProto}</strong>
                         <span class="protocol-risk">${row.flow_risk_level || "N/A"}</span>
                     </div>
 
