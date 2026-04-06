@@ -528,3 +528,122 @@ th {
     padding: 0 6px;
     color: var(--muted);
 }
+
+.soc-card {
+    background: linear-gradient(180deg, #ffffff 0%, #f8faff 100%);
+    border: 1px solid #dbe2f0;
+    box-shadow: 0 6px 18px rgba(16, 24, 43, 0.06);
+}
+
+.soc-card-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.soc-title-wrap {
+    min-width: 0;
+}
+
+.soc-proto {
+    font-size: 16px;
+    font-weight: 700;
+    color: #16224f;
+    margin-bottom: 4px;
+}
+
+.soc-flow {
+    font-size: 12px;
+    color: #6a7084;
+    word-break: break-word;
+}
+
+.soc-badge-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.soc-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.sev-high {
+    background: #ffe2e2;
+    color: #9b1c1c;
+}
+
+.sev-medium {
+    background: #fff1d6;
+    color: #9a6700;
+}
+
+.sev-low {
+    background: #dff6e5;
+    color: #1f6b3b;
+}
+
+.source-badge {
+    background: #e9eefb;
+    color: #23459d;
+}
+
+.soc-score-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f3f6fc;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.soc-evidence-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.soc-evidence-grid .full {
+    grid-column: 1 / -1;
+}
+
+.soc-evidence-grid div {
+    background: #ffffff;
+    border: 1px solid #e1e6f2;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.soc-evidence-grid span {
+    display: block;
+    font-size: 11px;
+    color: #6a7084;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.soc-evidence-grid strong {
+    font-size: 13px;
+    color: #10182b;
+    word-break: break-word;
+}
+
+.soc-summary {
+    border-top: 1px solid #e1e6f2;
+    padding-top: 10px;
+    font-size: 12px;
+    color: #31406b;
+    line-height: 1.6;
+}

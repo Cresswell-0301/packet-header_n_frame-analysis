@@ -71,13 +71,46 @@ function loadFlowPage(page = 1) {
     });
 }
 
+function riskBadgeClass(level) {
+    const v = (level || "").toLowerCase();
+    if (v === "high" || v === "very high") return "sev-high";
+    if (v === "medium") return "sev-medium";
+    return "sev-low";
+}
+
+function sourceBadge(value) {
+    const v = (value || "unknown").toLowerCase();
+    return `<span class="soc-badge source-badge">${v.toUpperCase()}</span>`;
+}
+
+function severityBadge(value) {
+    const text = (value || "low").toUpperCase();
+    return `<span class="soc-badge ${riskBadgeClass(value)}">${text}</span>`;
+}
+
+function buildSummary(row, proto) {
+    if (proto === "http") {
+        return `Client requested ${row.flow_http_method || "HTTP"} ${row.flow_http_host || ""}${row.flow_http_path || ""}`.trim();
+    }
+    if (proto === "tls") {
+        return `Observed encrypted web session${row.flow_tls_sni ? ` to ${row.flow_tls_sni}` : ""}`.trim();
+    }
+    if (proto === "ssh") {
+        return `Observed SSH session${row.flow_ssh_banner ? ` with banner ${row.flow_ssh_banner}` : ""}`.trim();
+    }
+    if (proto === "smb") {
+        return `Observed ${row.flow_smb_version || "SMB"} file-sharing traffic`.trim();
+    }
+    return "Protocol evidence observed.";
+}
+
 function loadProtocolPage(page = 1) {
     const filterEl = document.getElementById("protocol-filter");
     const protocol = filterEl ? filterEl.value : "all";
 
     updateProtocolTitle(protocol);
 
-    fetch(`/api/protocol-evidence?page=${page}&protocol=${encodeURIComponent(protocol)}`)
+    fetch(`/api/protocol-evidence?page=${page}&protocol=${protocol}`)
         .then((res) => res.json())
         .then((json) => {
             const grid = document.getElementById("protocol-grid");
@@ -91,74 +124,72 @@ function loadProtocolPage(page = 1) {
 
             json.data.forEach((row) => {
                 const card = document.createElement("div");
-                card.className = "protocol-card";
+                card.className = "protocol-card soc-card";
 
-                const proto = (row.flow_protocol_hint || "UNKNOWN").toLowerCase();
-
+                const proto = (row.flow_protocol_hint || "unknown").toLowerCase();
                 const displayProto = proto === "tls" ? "HTTPS (TLS)" : proto === "http" ? "HTTP" : proto === "ssh" ? "SSH" : proto === "smb" ? "SMB" : proto.toUpperCase();
 
+                const detectSource = row.flow_http_detect_source || row.flow_tls_detect_source || row.flow_ssh_detect_source || row.flow_smb_detect_source || "unknown";
+
+                let evidenceHtml = "";
+
+                if (proto === "http") {
+                    evidenceHtml = `
+                        <div class="soc-evidence-grid">
+                            <div><span>Method</span><strong>${row.flow_http_method || "N/A"}</strong></div>
+                            <div><span>Host</span><strong>${row.flow_http_host || "N/A"}</strong></div>
+                            <div class="full"><span>Path</span><strong>${row.flow_http_path || "N/A"}</strong></div>
+                        </div>
+                    `;
+                } else if (proto === "tls") {
+                    evidenceHtml = `
+                        <div class="soc-evidence-grid">
+                            <div class="full"><span>TLS SNI</span><strong>${row.flow_tls_sni || "N/A"}</strong></div>
+                        </div>
+                    `;
+                } else if (proto === "ssh") {
+                    evidenceHtml = `
+                        <div class="soc-evidence-grid">
+                            <div class="full"><span>SSH Banner</span><strong>${row.flow_ssh_banner || "N/A"}</strong></div>
+                        </div>
+                    `;
+                } else if (proto === "smb") {
+                    evidenceHtml = `
+                        <div class="soc-evidence-grid">
+                            <div><span>SMB Version</span><strong>${row.flow_smb_version || "N/A"}</strong></div>
+                        </div>
+                    `;
+                }
+
                 card.innerHTML = `
-                    <div class="protocol-card-header">
-                        <strong>${displayProto}</strong>
-                        <span class="protocol-risk">${row.flow_risk_level || "N/A"}</span>
+                    <div class="soc-card-top">
+                        <div class="soc-title-wrap">
+                            <div class="soc-proto">${displayProto}</div>
+                            <div class="soc-flow">${row.flow_src_ip}:${row.flow_src_port} → ${row.flow_dst_ip}:${row.flow_dst_port}</div>
+                        </div>
+                        <div class="soc-badge-group">
+                            ${severityBadge(row.flow_risk_level)}
+                            ${sourceBadge(detectSource)}
+                        </div>
                     </div>
 
-                    <div class="protocol-meta">
-                        <div><strong>Flow:</strong> ${row.flow_src_ip}:${row.flow_src_port} -> ${row.flow_dst_ip}:${row.flow_dst_port}</div>
-                        <div><strong>Risk Score:</strong> ${row.flow_risk_score || "N/A"}</div>
+                    <div class="soc-score-row">
+                        <span>Risk Score</span>
+                        <strong>${row.flow_risk_score ?? "N/A"}</strong>
+                    </div>
+
+                    ${evidenceHtml}
+
+                    <div class="soc-summary">
+                        ${buildSummary(row, proto)}
                     </div>
                 `;
-
-                if (row.flow_http_method || row.flow_http_host || row.flow_http_path) {
-                    card.innerHTML += `
-                        <div class="protocol-block">
-                            <div><strong>HTTP Method:</strong> ${row.flow_http_method || "N/A"}</div>
-                            <div><strong>HTTP Host:</strong> ${row.flow_http_host || "N/A"}</div>
-                            <div><strong>HTTP Path:</strong> ${row.flow_http_path || "N/A"}</div>
-                            <div><strong>Detection Source:</strong> ${row.flow_http_detect_source || "N/A"}</div>
-                        </div>
-                    `;
-                }
-
-                if (row.flow_tls_sni) {
-                    card.innerHTML += `
-                        <div class="protocol-block">
-                            <div><strong>TLS SNI:</strong> ${row.flow_tls_sni}</div>
-                            <div><strong>Detection Source:</strong> ${row.flow_tls_detect_source || "N/A"}</div>
-                        </div>
-                    `;
-                }
-
-                if (row.flow_protocol_hint === "ssh" || row.flow_ssh_seen) {
-                    card.innerHTML += `
-                        <div class="protocol-block">
-                            <div><strong>Protocol:</strong> SSH</div>
-                            <div><strong>SSH Banner:</strong> ${row.flow_ssh_banner || "N/A"}</div>
-                            <div><strong>Detection Source:</strong> ${row.flow_ssh_detect_source || "N/A"}</div>
-                        </div>
-                    `;
-                }
-
-                if (row.flow_protocol_hint === "smb" || row.flow_smb_seen) {
-                    card.innerHTML += `
-                        <div class="protocol-block">
-                            <div><strong>Protocol:</strong> SMB</div>
-                            <div><strong>SMB Version:</strong> ${row.flow_smb_version || "N/A"}</div>
-                            <div><strong>Detection Source:</strong> ${row.flow_smb_detect_source || "N/A"}</div>
-                        </div>
-                    `;
-                }
 
                 grid.appendChild(card);
             });
 
             const totalPages = Math.ceil(json.total / json.per_page);
             renderPagination("#protocol-pagination", json.page, totalPages, loadProtocolPage);
-        })
-        .catch((error) => {
-            const grid = document.getElementById("protocol-grid");
-            grid.innerHTML = `<div class="muted">Failed to load protocol evidence: ${error.message}</div>`;
-            console.error("Failed to load protocol evidence:", error);
         });
 }
 
