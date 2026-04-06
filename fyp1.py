@@ -269,6 +269,26 @@ def parse_ssh_banner(payload_bytes):
     return None
 
 
+def parse_smb_signature(payload_bytes):
+    try:
+        if not payload_bytes:
+            return None
+
+        # scan first 128 bytes
+        search_area = payload_bytes[:128]
+
+        if b"\xfeSMB" in search_area:
+            return "SMB2/3"
+
+        if b"\xffSMB" in search_area:
+            return "SMB1"
+
+    except Exception:
+        return None
+
+    return None
+
+
 # flow stats store
 flows = defaultdict(lambda: {
     # Basic volume & timing
@@ -311,7 +331,6 @@ flows = defaultdict(lambda: {
     # protocol hints
     "http_seen": 0, # 80
     "tls_seen": 0, # 443
-    "dns_seen": 0,
     "ssh_seen": 0, # 22
     "smb_seen": 0, # 445
 
@@ -327,21 +346,25 @@ flows = defaultdict(lambda: {
     "ssh_detect_source": "",
     "ssh_banner": "",
 
+    # SMB details
+    "smb_payload_detected": 0,
+    "smb_port_fallback": 0,
+    "smb_detect_source": "",
+    "smb_version": "",
+
     # HTTP details
     "http_method": "",
     "http_host": "",
     "http_path": "",
     "http_buffer": b"",
+    "http_detect_source": "",
     "http_done": 0,
 
     # TLS details
     "tls_sni": "",
     "tls_buffer": b"",
-    "tls_sni_done": 0,
-
-    # source labels
-    "http_detect_source": "",
     "tls_detect_source": "",
+    "tls_sni_done": 0,
 
     # ports / endpoints
     "sport_set": set(),
@@ -615,7 +638,7 @@ def update_flow_stats(pkt, rawlen):
         sport = int(pkt[TCP].sport)
         dport = int(pkt[TCP].dport)
 
-        payload = bytes(pkt[Raw].load) if Raw in pkt else b""
+        payload = bytes(pkt[TCP].payload) if TCP in pkt else b""
 
         # SSH detection
         ssh_port_match = 22 in (sport, dport)
@@ -730,16 +753,30 @@ def update_flow_stats(pkt, rawlen):
             if not f["tls_detect_source"]:
                 f["tls_detect_source"] = "port"
 
-        # SMB protocols
-        if 445 in (sport, dport):
+        # SMB detection
+        smb_port_match = 445 in (sport, dport)
+        smb_version = parse_smb_signature(payload)
+
+        if smb_version:
             f["smb_seen"] = 1
+            f["smb_payload_detected"] = 1
+            f["smb_port_fallback"] = 0
+            f["smb_detect_source"] = "payload"
+
+            if not f["smb_version"]:
+                f["smb_version"] = smb_version
+
+        elif smb_port_match:
+            f["smb_seen"] = 1
+            f["smb_port_fallback"] = 1
+
+            if not f["smb_detect_source"]:
+                f["smb_detect_source"] = "port"
 
     elif UDP in pkt:
         sport = int(pkt[UDP].sport)
         dport = int(pkt[UDP].dport)
 
-        if 53 in (sport, dport):
-            f["dns_seen"] += 1
 
 def flow_stats_for(pkt):
     key = canonical_flow_key(pkt)
@@ -796,8 +833,12 @@ def flow_stats_for(pkt):
         "ssh_detect_source": f["ssh_detect_source"],
         "ssh_banner": f["ssh_banner"],
         
-        "dns_seen": f["dns_seen"],
         "smb_seen": f["smb_seen"],
+        "smb_payload_detected": f["smb_payload_detected"],
+        "smb_port_fallback": f["smb_port_fallback"],
+        "smb_detect_source": f["smb_detect_source"],
+        "smb_version": f["smb_version"],
+        
         "syn_seen": f["syn_seen"],
         "synack_seen": f["synack_seen"],
         "ack_seen_after_synack": f["ack_seen_after_synack"],
@@ -1017,8 +1058,12 @@ def feature_row(n, pkt, raw):
             "ssh_detect_source": "",
             "ssh_banner": "",
 
-            "dns_seen": 0, 
             "smb_seen": 0,
+            "smb_payload_detected": 0,
+            "smb_port_fallback": 0,
+            "smb_detect_source": "",
+            "smb_version": "",
+
             "syn_seen": 0,
             "synack_seen": 0,
             "ack_seen_after_synack": 0,
@@ -1147,6 +1192,12 @@ def feature_row(n, pkt, raw):
         "flow_ssh_detect_source": flow["ssh_detect_source"],
         "flow_ssh_banner": flow["ssh_banner"],
 
+        "flow_smb_seen": flow["smb_seen"],
+        "flow_smb_payload_detected": flow["smb_payload_detected"],
+        "flow_smb_port_fallback": flow["smb_port_fallback"],
+        "flow_smb_detect_source": flow["smb_detect_source"],
+        "flow_smb_version": flow["smb_version"],
+
         "flow_risk_score": flow_risk_score,
         "flow_risk_level": flow_risk_level,
         "flow_risk_reason": flow_risk_reason,
@@ -1230,21 +1281,24 @@ def detect_flow_protocol_hint(flow):
     # then port fallback
     if flow.get("http_port_fallback", 0):
         return "http"
-
+    
+    # TLS SNI alone is a strong hint even without full payload detection, so we check it before port fallback
     if flow.get("tls_port_fallback", 0):
         return "tls"
-
+    
+    # SSH
     if flow.get("ssh_payload_detected", 0):
         return "ssh"
 
     if flow.get("ssh_seen", 0):
         return "ssh"
+    
+    # SMB
+    if flow.get("smb_payload_detected", 0):
+        return "smb"
 
     if flow.get("smb_seen", 0):
         return "smb"
-
-    if flow.get("dns_seen", 0):
-        return "dns"
 
     return "unknown"
 
@@ -1759,8 +1813,11 @@ def export_flows_csv(path="flows.csv"):
             "ssh_detect_source": f["ssh_detect_source"],
             "ssh_banner": f["ssh_banner"],
 
-            "dns_seen": f["dns_seen"],
             "smb_seen": f["smb_seen"],
+            "smb_payload_detected": f["smb_payload_detected"],
+            "smb_port_fallback": f["smb_port_fallback"],
+            "smb_detect_source": f["smb_detect_source"],
+            "smb_version": f["smb_version"],"smb_seen": f["smb_seen"],
 
             "syn_seen": f["syn_seen"],
             "synack_seen": f["synack_seen"],
@@ -1826,8 +1883,11 @@ def export_flows_csv(path="flows.csv"):
             "flow_ssh_detect_source": f["ssh_detect_source"],
             "flow_ssh_banner": f["ssh_banner"],
 
-            "flow_dns_seen": flow_stats["dns_seen"],
             "flow_smb_seen": flow_stats["smb_seen"],
+            "flow_smb_payload_detected": f["smb_payload_detected"],
+            "flow_smb_port_fallback": f["smb_port_fallback"],
+            "flow_smb_detect_source": f["smb_detect_source"],
+            "flow_smb_version": f["smb_version"],
 
             "flow_syn_seen": flow_stats["syn_seen"],
             "flow_synack_seen": flow_stats["synack_seen"],

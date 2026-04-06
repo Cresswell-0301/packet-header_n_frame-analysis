@@ -131,6 +131,17 @@ function loadProtocolPage(page = 1) {
                     `;
                 }
 
+                // SMB
+                if (row.flow_protocol_hint === "smb" || row.flow_smb_seen) {
+                    card.innerHTML += `
+                        <div class="protocol-block">
+                            <div><strong>Protocol:</strong> SMB</div>
+                            <div><strong>SMB Version:</strong> ${row.flow_smb_version || "N/A"}</div>
+                            <div><strong>Detection Source:</strong> ${row.flow_smb_detect_source || "N/A"}</div>
+                        </div>
+                    `;
+                }
+
                 grid.appendChild(card);
             });
 

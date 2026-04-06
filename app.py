@@ -408,6 +408,12 @@ def get_protocol_evidence():
         'flow_ssh_detect_source',
         'flow_ssh_banner',
 
+        'flow_smb_seen',
+        'flow_smb_payload_detected',
+        'flow_smb_port_fallback',
+        'flow_smb_detect_source',
+        'flow_smb_version',
+
         'flow_risk_score',
         'flow_risk_level',
     ] if c in df.columns]
@@ -438,6 +444,9 @@ def get_protocol_evidence():
         ) |
         (
             pd.to_numeric(protocol_df.get('flow_ssh_payload_detected', 0), errors='coerce').fillna(0) > 0
+        ) | 
+        (
+            pd.to_numeric(protocol_df.get('flow_smb_payload_detected', 0), errors='coerce').fillna(0) > 0
         )
     ]
 
