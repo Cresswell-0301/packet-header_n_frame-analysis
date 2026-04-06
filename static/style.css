@@ -361,6 +361,16 @@ h3 {
     gap: 14px;
 }
 
+.protocol-grid.single-col {
+    grid-template-columns: 1fr;
+}
+
+.no-data-msg {
+    text-align: center;
+    padding: 40px 20px;
+    font-size: 14px;
+}
+
 .protocol-card {
     background: var(--white);
     border: 1px solid var(--border);

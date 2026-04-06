@@ -125,7 +125,8 @@ function loadProtocolPage(page = 1) {
 
             if (!json.data || json.data.length === 0) {
                 const message = buildNoDataMessage(protocol, detectSource);
-                grid.innerHTML = `<div class='muted'>${message}</div>`;
+                grid.classList.add("single-col"); // 👈 force 1 column
+                grid.innerHTML = `<div class='muted no-data-msg'>${message}</div>`;
                 renderPagination("#protocol-pagination", 1, 1, loadProtocolPage);
                 return;
             }
@@ -201,8 +202,19 @@ function loadProtocolPage(page = 1) {
         })
         .catch((error) => {
             const grid = document.getElementById("protocol-grid");
-            grid.innerHTML = `<div class="muted">Failed to load protocol evidence: ${error.message}</div>`;
-            console.error("Failed to load protocol evidence:", error);
+            grid.innerHTML = "";
+
+            grid.classList.remove("single-col");
+
+            if (!json.data || json.data.length === 0) {
+                const message = buildNoDataMessage(protocol, detectSource);
+
+                grid.classList.add("single-col");
+                grid.innerHTML = `<div class='muted no-data-msg'>${message}</div>`;
+
+                renderPagination("#protocol-pagination", 1, 1, loadProtocolPage);
+                return;
+            }
         });
 }
 
