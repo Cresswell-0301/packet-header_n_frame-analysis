@@ -107,13 +107,17 @@ function buildSummary(row, proto) {
 function loadProtocolPage(page = 1) {
     const protocolFilterEl = document.getElementById("protocol-filter");
     const sourceFilterEl = document.getElementById("detect-source-filter");
+    const riskSortFilterEl = document.getElementById("risk-sort-filter");
 
     const protocol = protocolFilterEl ? protocolFilterEl.value : "all";
     const detectSource = sourceFilterEl ? sourceFilterEl.value : "all";
+    const riskSort = riskSortFilterEl ? riskSortFilterEl.value : "desc";
 
     updateProtocolTitle(protocol, detectSource);
 
-    fetch(`/api/protocol-evidence?page=${page}&protocol=${encodeURIComponent(protocol)}&detect_source=${encodeURIComponent(detectSource)}`)
+    fetch(
+        `/api/protocol-evidence?page=${page}&protocol=${encodeURIComponent(protocol)}&detect_source=${encodeURIComponent(detectSource)}&risk_sort=${encodeURIComponent(riskSort)}`,
+    )
         .then((res) => res.json())
         .then((json) => {
             const grid = document.getElementById("protocol-grid");
@@ -288,6 +292,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const protocolFilter = document.getElementById("protocol-filter");
     const detectSourceFilter = document.getElementById("detect-source-filter");
+    const riskSortFilter = document.getElementById("risk-sort-filter");
 
     if (protocolFilter) {
         protocolFilter.addEventListener("change", () => {
@@ -297,6 +302,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (detectSourceFilter) {
         detectSourceFilter.addEventListener("change", () => {
+            loadProtocolPage(1);
+        });
+    }
+
+    if (riskSortFilter) {
+        riskSortFilter.addEventListener("change", () => {
             loadProtocolPage(1);
         });
     }

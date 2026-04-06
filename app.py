@@ -373,6 +373,7 @@ def get_flows():
 def get_protocol_evidence():
     protocol = request.args.get('protocol', 'all').strip().lower()
     detect_source = request.args.get('detect_source', 'all').strip().lower()
+    risk_sort = request.args.get('risk_sort', 'desc').strip().lower()
     
     page = max(1, int(request.args.get('page', 1)))
     per_page = 9
@@ -429,9 +430,11 @@ def get_protocol_evidence():
         errors='coerce'
     ).fillna(-1)
 
+    ascending = True if risk_sort == 'asc' else False
+
     protocol_df = protocol_df.sort_values(
         by='flow_risk_score_num',
-        ascending=False
+        ascending=ascending
     )
 
     # base evidence filter

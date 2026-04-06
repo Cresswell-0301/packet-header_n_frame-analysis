@@ -316,7 +316,7 @@ h3 {
 }
 
 .protocol-filter-select {
-    min-width: 180px;
+    min-width: 80px;
     height: 36px;
     border: 1px solid var(--border);
     border-radius: 6px;
