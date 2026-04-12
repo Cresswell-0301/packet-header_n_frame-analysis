@@ -125,11 +125,13 @@ function loadProtocolPage(page = 1) {
 
             if (!json.data || json.data.length === 0) {
                 const message = buildNoDataMessage(protocol, detectSource);
-                grid.classList.add("single-col"); // 👈 force 1 column
-                grid.innerHTML = `<div class='muted no-data-msg'>${message}</div>`;
+                grid.classList.add("single-col");
+                grid.innerHTML = `<div class="muted no-data-msg">${message}</div>`;
                 renderPagination("#protocol-pagination", 1, 1, loadProtocolPage);
                 return;
             }
+
+            grid.classList.remove("single-col");
 
             json.data.forEach((row) => {
                 const card = document.createElement("div");
@@ -203,18 +205,10 @@ function loadProtocolPage(page = 1) {
         .catch((error) => {
             const grid = document.getElementById("protocol-grid");
             grid.innerHTML = "";
+            grid.classList.add("single-col");
 
-            grid.classList.remove("single-col");
-
-            if (!json.data || json.data.length === 0) {
-                const message = buildNoDataMessage(protocol, detectSource);
-
-                grid.classList.add("single-col");
-                grid.innerHTML = `<div class='muted no-data-msg'>${message}</div>`;
-
-                renderPagination("#protocol-pagination", 1, 1, loadProtocolPage);
-                return;
-            }
+            grid.innerHTML = `<div class="muted no-data-msg">Failed to load protocol evidence: ${error.message}</div>`;
+            renderPagination("#protocol-pagination", 1, 1, loadProtocolPage);
         });
 }
 

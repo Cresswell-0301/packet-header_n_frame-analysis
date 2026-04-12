@@ -126,7 +126,7 @@
                             <thead>
                                 <tr>
                                     {% for key in summary.top_flows[0].keys() %}
-                                    <th>{{ key }}</th>
+                                    <th>{{ "flow_protocol" if key == "flow_protocol_hint" else key }}</th>
                                     {% endfor %}
                                 </tr>
                             </thead>
