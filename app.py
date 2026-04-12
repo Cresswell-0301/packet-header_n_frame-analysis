@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any, List
 
 import pandas as pd
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, Response, send_file
+
+from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent / 'packet-header_n_frame-analysis'
@@ -73,6 +75,26 @@ def get_paginated_csv_response(csv_path: Path, page: int, per_page: int):
         'page': page,
         'per_page': per_page
     })
+
+
+def generate_filename(base_name: str, ext: str):
+    now = datetime.now()
+    timestamp = now.strftime('%Y%m%d_%H%M')
+    return f"{timestamp}_{base_name}.{ext}"
+
+
+def csv_download_response(df: pd.DataFrame, base_name: str):
+    filename = generate_filename(base_name, 'csv')
+
+    csv_data = df.to_csv(index=False)
+
+    return Response(
+        csv_data,
+        mimetype='text/csv',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"'
+        }
+    )
 
 
 @app.route('/')
@@ -559,6 +581,207 @@ def get_protocol_evidence():
         'page': page,
         'per_page': per_page
     })
+
+
+@app.get('/api/export/top-packets')
+def export_top_packets():
+    scores_path = DATA_DIR / 'scores.csv'
+
+    if not scores_path.exists():
+        return jsonify({'message': 'scores.csv not found'}), 404
+
+    df = pd.read_csv(scores_path)
+
+    if 'ip_fraud_score' in df.columns:
+        df['ip_fraud_score_num'] = pd.to_numeric(df['ip_fraud_score'], errors='coerce').fillna(-1)
+        df = df.sort_values(by='ip_fraud_score_num', ascending=False)
+
+    export_cols = [c for c in ['frame_no', 'ip_src', 'ip_dst', 'label', 'ip_fraud_score_display', 'risk_level'] if c in df.columns]
+    df = df[export_cols].head(10).fillna('')
+    
+    return csv_download_response(df, 'top_10_highest_risk_packets')
+
+
+@app.get('/api/export/top-flows')
+def export_top_flows():
+    flows_path = DATA_DIR / 'flows.csv'
+
+    if not flows_path.exists():
+        return jsonify({'message': 'flows.csv not found'}), 404
+
+    df = pd.read_csv(flows_path)
+
+    df['flow_risk_score_num'] = pd.to_numeric(df.get('flow_risk_score', 0), errors='coerce').fillna(-1)
+    df = df.sort_values(by='flow_risk_score_num', ascending=False)
+
+    export_cols = [c for c in [
+        'flow_src_ip',
+        'flow_dst_ip',
+        'flow_proto',
+        'flow_src_port',
+        'flow_dst_port',
+        'flow_pkts',
+        'flow_duration',
+        'flow_protocol_hint',
+        'flow_http_detect_source',
+        'flow_http_method',
+        'flow_http_host',
+        'flow_http_path',
+        'flow_tls_detect_source',
+        'flow_tls_sni',
+        'flow_risk_score',
+        'flow_risk_level',
+        'flow_risk_reason'
+    ] if c in df.columns]
+
+    df = df[export_cols].head(10).fillna('')
+
+    return csv_download_response(df, 'top_10_highest_risk_flows')
+
+
+@app.get('/api/export/records')
+def export_records():
+    scores_path = DATA_DIR / 'scores.csv'
+
+    if not scores_path.exists():
+        return jsonify({'message': 'scores.csv not found'}), 404
+
+    df = pd.read_csv(scores_path).fillna('')
+    return csv_download_response(df, 'all_scored_records')
+
+
+@app.get('/api/export/flows')
+def export_all_flows():
+    flows_path = DATA_DIR / 'flows.csv'
+
+    if not flows_path.exists():
+        return jsonify({'message': 'flows.csv not found'}), 404
+
+    df = pd.read_csv(flows_path).fillna('')
+    
+    return csv_download_response(df, 'all_flow_records')
+
+
+@app.get('/api/export/capture-log')
+def export_capture_log():
+    log_path = DATA_DIR / 'capture_live.txt'
+
+    if not log_path.exists():
+        return jsonify({'message': 'capture_live.txt not found'}), 404
+
+    content = log_path.read_text(encoding='utf-8', errors='replace')
+
+    filename = generate_filename('capture_log_preview', 'txt')
+
+    return Response(
+        content,
+        mimetype='text/plain',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"'
+        }
+)
+
+
+@app.get('/api/export/capture-log-pcap')
+def export_capture_log_pcap():
+    pcap_path = DATA_DIR / 'capture_live.pcap'
+
+    if not pcap_path.exists():
+        return jsonify({'message': 'capture_live.pcap not found'}), 404
+    
+    filename = generate_filename('capture_live', 'pcap')
+
+    return send_file(
+        pcap_path,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.tcpdump.pcap'
+    )
+
+
+@app.get('/api/export/protocol-evidence')
+def export_protocol_evidence():
+    protocol = request.args.get('protocol', 'all').strip().lower()
+    detect_source = request.args.get('detect_source', 'all').strip().lower()
+    risk_sort = request.args.get('risk_sort', 'desc').strip().lower()
+
+    flows_path = DATA_DIR / 'flows.csv'
+
+    if not flows_path.exists():
+        return jsonify({'message': 'flows.csv not found'}), 404
+
+    df = pd.read_csv(flows_path)
+    protocol_df = df.copy()
+
+    protocol_df['flow_risk_score_num'] = pd.to_numeric(
+        protocol_df.get('flow_risk_score', 0),
+        errors='coerce'
+    ).fillna(-1)
+
+    ascending = True if risk_sort == 'asc' else False
+    protocol_df = protocol_df.sort_values(by='flow_risk_score_num', ascending=ascending)
+
+    # keep rows that have protocol evidence
+    protocol_df = protocol_df[
+        (
+            protocol_df.get('flow_protocol_hint', '').fillna('').astype(str).str.strip() != ''
+        )
+    ]
+
+    # filter by protocol
+    if protocol != 'all':
+        protocol_df = protocol_df[
+            protocol_df.get('flow_protocol_hint', '').fillna('').astype(str).str.lower() == protocol
+        ]
+
+    # filter by detect source
+    if detect_source != 'all':
+        def row_source(row):
+            proto = str(row.get('flow_protocol_hint', '')).lower()
+
+            if proto == 'http':
+                return str(row.get('flow_http_detect_source', '')).lower()
+            if proto == 'tls':
+                return str(row.get('flow_tls_detect_source', '')).lower()
+            if proto == 'ssh':
+                return str(row.get('flow_ssh_detect_source', '')).lower()
+            if proto == 'smb':
+                return str(row.get('flow_smb_detect_source', '')).lower()
+
+            return ''
+
+        protocol_df = protocol_df[protocol_df.apply(lambda row: row_source(row) == detect_source, axis=1)]
+
+    export_cols = [c for c in [
+        'flow_src_ip',
+        'flow_dst_ip',
+        'flow_src_port',
+        'flow_dst_port',
+        'flow_protocol_hint',
+
+        'flow_http_detect_source',
+        'flow_http_method',
+        'flow_http_host',
+        'flow_http_path',
+
+        'flow_tls_detect_source',
+        'flow_tls_sni',
+
+        'flow_ssh_detect_source',
+        'flow_ssh_banner',
+
+        'flow_smb_detect_source',
+        'flow_smb_version',
+
+        'flow_risk_score',
+        'flow_risk_level',
+    ] if c in protocol_df.columns]
+
+    protocol_df = protocol_df[export_cols].fillna('')
+
+    filename = f'protocol_evidence_{protocol}_{detect_source}_{risk_sort}'
+
+    return csv_download_response(protocol_df, filename)
 
 
 if __name__ == '__main__':

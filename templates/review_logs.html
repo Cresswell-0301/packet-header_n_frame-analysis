@@ -90,7 +90,11 @@
                 </section>
 
                 <section class="review-section panel">
-                    <h2>Top 10 Highest Risk Packets</h2>
+                    <div class="section-header-with-filter">
+                        <h2>Top 10 Highest Risk Packets</h2>
+                        <button class="export-btn" onclick="window.location.href = '/api/export/top-packets'">Export CSV</button>
+                    </div>
+
                     {% if summary.top_records %}
                     <div class="table-wrap table-wrap-xy">
                         <table class="full-score-table">
@@ -118,7 +122,10 @@
                 </section>
 
                 <section class="review-section panel">
-                    <h2>Top 10 Highest Risk Flows</h2>
+                    <div class="section-header-with-filter">
+                        <h2>Top 10 Highest Risk Flows</h2>
+                        <button class="export-btn" onclick="window.location.href = '/api/export/top-flows'">Export CSV</button>
+                    </div>
 
                     {% if summary.top_flows %}
                     <div class="table-wrap table-wrap-xy">
@@ -150,34 +157,38 @@
                     <div class="section-header-with-filter">
                         <h2 id="protocol-title">All Protocol Evidence Summary</h2>
 
-                        <div class="protocol-filter-row">
-                            <div class="protocol-filter-group">
-                                <label for="protocol-filter"><strong>Protocol:</strong></label>
-                                <select id="protocol-filter" class="protocol-filter-select">
-                                    <option value="all">All</option>
-                                    <option value="ssh">SSH</option>
-                                    <option value="http">HTTP</option>
-                                    <option value="tls">HTTPS (TLS)</option>
-                                    <option value="smb">SMB</option>
-                                </select>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+                            <div class="protocol-filter-row">
+                                <div class="protocol-filter-group">
+                                    <label for="protocol-filter"><strong>Protocol:</strong></label>
+                                    <select id="protocol-filter" class="protocol-filter-select">
+                                        <option value="all">All</option>
+                                        <option value="ssh">SSH</option>
+                                        <option value="http">HTTP</option>
+                                        <option value="tls">HTTPS (TLS)</option>
+                                        <option value="smb">SMB</option>
+                                    </select>
+                                </div>
+
+                                <div class="protocol-filter-group">
+                                    <label for="detect-source-filter"><strong>Source:</strong></label>
+                                    <select id="detect-source-filter" class="protocol-filter-select">
+                                        <option value="all">All</option>
+                                        <option value="payload">Payload</option>
+                                        <option value="port">Port</option>
+                                    </select>
+                                </div>
+
+                                <div class="protocol-filter-group">
+                                    <label for="risk-sort-filter"><strong>Risk Score:</strong></label>
+                                    <select id="risk-sort-filter" class="protocol-filter-select">
+                                        <option value="desc">Highest</option>
+                                        <option value="asc">Lowest</option>
+                                    </select>
+                                </div>
                             </div>
 
-                            <div class="protocol-filter-group">
-                                <label for="detect-source-filter"><strong>Source:</strong></label>
-                                <select id="detect-source-filter" class="protocol-filter-select">
-                                    <option value="all">All</option>
-                                    <option value="payload">Payload</option>
-                                    <option value="port">Port</option>
-                                </select>
-                            </div>
-
-                            <div class="protocol-filter-group">
-                                <label for="risk-sort-filter"><strong>Risk Score:</strong></label>
-                                <select id="risk-sort-filter" class="protocol-filter-select">
-                                    <option value="desc">Highest</option>
-                                    <option value="asc">Lowest</option>
-                                </select>
-                            </div>
+                            <button class="export-btn" id="export-protocol-btn">Export CSV</button>
                         </div>
                     </div>
 
@@ -189,7 +200,10 @@
                 </section>
 
                 <section class="review-section panel">
-                    <h2>All Scored Records (Total: {{ summary.total_rows }})</h2>
+                    <div class="section-header-with-filter">
+                        <h2>All Scored Records (Total: {{ summary.total_rows }})</h2>
+                        <button class="export-btn" onclick="window.location.href = '/api/export/records'">Export CSV</button>
+                    </div>
 
                     <div class="table-wrap table-wrap-xy">
                         <table class="full-score-table" id="records-table">
@@ -210,7 +224,10 @@
                 </section>
 
                 <section class="review-section panel">
-                    <h2>All Flow Records (Total: {{ summary.flow_rows }})</h2>
+                    <div class="section-header-with-filter">
+                        <h2>All Flow Records (Total: {{ summary.flow_rows }})</h2>
+                        <button class="export-btn" onclick="window.location.href = '/api/export/flows'">Export CSV</button>
+                    </div>
 
                     <div class="table-wrap table-wrap-xy">
                         <table class="full-score-table" id="flows-table">
@@ -231,7 +248,14 @@
                 </section>
 
                 <section class="review-section panel">
-                    <h2>Capture Log Preview</h2>
+                    <div class="section-header-with-filter">
+                        <h2>Capture Log Preview</h2>
+                        <div>
+                            <button class="export-btn" onclick="window.location.href = '/api/export/capture-log'">Export TXT</button>
+                            <button class="export-btn" onclick="window.location.href = '/api/export/capture-log-pcap'">Export PCAP</button>
+                        </div>
+                    </div>
+
                     <div class="log-preview">
                         <pre class="console-box large-console">{{ summary.log_preview if summary.log_preview else 'No capture log found.' }}</pre>
                     </div>

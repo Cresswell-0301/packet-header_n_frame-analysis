@@ -664,3 +664,19 @@ th {
     color: #31406b;
     line-height: 1.6;
 }
+
+.export-btn {
+    border: none;
+    background: var(--navy);
+    color: var(--white);
+    cursor: pointer;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.export-btn:hover {
+    background: var(--navy-2);
+}

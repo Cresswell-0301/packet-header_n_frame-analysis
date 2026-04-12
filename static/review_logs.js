@@ -313,6 +313,27 @@ function updateProtocolTitle(protocol, detectSource = "all") {
     }
 }
 
+function exportProtocolEvidence() {
+    const protocol = document.getElementById("protocol-filter")?.value || "all";
+    const detectSource = document.getElementById("detect-source-filter")?.value || "all";
+    const riskSort = document.getElementById("risk-sort-filter")?.value || "desc";
+
+    const url =
+        `/api/export/protocol-evidence?protocol=${encodeURIComponent(protocol)}` +
+        `&detect_source=${encodeURIComponent(detectSource)}` +
+        `&risk_sort=${encodeURIComponent(riskSort)}`;
+
+    window.location.href = url;
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const exportProtocolBtn = document.getElementById("export-protocol-btn");
+
+    if (exportProtocolBtn) {
+        exportProtocolBtn.addEventListener("click", exportProtocolEvidence);
+    }
+});
+
 document.addEventListener("DOMContentLoaded", () => {
     loadPage(1);
     loadFlowPage(1);
