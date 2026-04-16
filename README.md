@@ -1,70 +1,173 @@
-# NetRisk — Network Traffic Risk Analysis Dashboard
+# NetRisk — Network Traffic Frame Integrity & Threat Classification
 
-A web-based system for **real-time packet capture, feature extraction, and threat classification** using:
+### Header & Flow Analysis with Prototype Detector
+
+A web-based system for **real-time network traffic analysis, frame integrity verification, and threat classification** using:
 
 - L2–L4 header analysis (Scapy)
-- Machine learning (Random Forest)
+- Flow-based behavioural analysis
+- Machine Learning (Random Forest)
 - External threat intelligence (Scamalytics API)
-- Interactive dashboard (FastAPI)
+- Interactive SOC-style dashboard (FastAPI)
 
 ---
 
 ## 1) System Overview
 
-Core capabilities:
+NetRisk is designed as a **lightweight header-based detection system** that overcomes limitations of traditional payload-based security tools.
 
-- Capture live network packets
-- Extract L2–L4 header features
-- Perform ML-based anomaly detection
-- Enrich IP risk using Scamalytics API
-- Display results via web dashboard
+Unlike DPI systems, this system:
+
+- Works even on **encrypted traffic**
+- Detects **frame-level anomalies**
+- Provides **explainable risk scoring**
+
+### Core Capabilities
+
+- Live packet capture (PCAP generation)
+- L2–L4 header feature extraction
+- Flow generation & aggregation
+- Protocol identification (HTTP, TLS, SSH, SMB)
+- TCP behaviour analysis (SYN/ACK patterns)
+- Machine learning classification
+- IP risk enrichment (Scamalytics API)
+- SOC-style dashboard visualization
+- Export results (CSV / TXT / PCAP)
 
 ---
 
-## 2) Project Structure
+## Why This System Matters
+
+Traditional network security systems face critical limitations:
+
+- Deep Packet Inspection (DPI) fails on encrypted traffic
+- Flow-based systems (NetFlow) ignore L2 header integrity
+- Advanced tools like Zeek may drop malformed packets (e.g., invalid checksum)
+
+This creates a **visibility gap in L2–L4 header integrity verification**.
+
+NetRisk addresses this gap by:
+
+- Analysing raw packet headers (L2–L4)
+- Detecting structural anomalies
+- Classifying threats without relying on payload data
+
+---
+
+## Comparison with Existing Systems
+
+| Feature | DPI (Snort/Suricata) | NetFlow | Zeek | NetRisk |
+|--------|---------------------|--------|------|--------|
+| Works on encrypted traffic | ❌ | ✅ | ✅ | ✅ |
+| L2 header analysis | ❌ | ❌ | ⚠️ Partial | ✅ |
+| Detect malformed frames | ❌ | ❌ | ❌ | ✅ |
+| Payload required | ✅ | ❌ | ❌ | ❌ |
+| Explainable scoring | ❌ | ❌ | ⚠️ | ✅ |
+
+---
+
+## 2) System Architecture
+
+The system follows a multi-stage detection pipeline:
 
 ```text
-packet-header_n_frame-analysis/
-├── app.py                  # FastAPI backend (dashboard controller)
-├── fyp1.py                 # Capture + feature extraction + scoring engine
-├── random_forest/
-│   └── rf_model.joblib     # Trained ML model
-├── templates/
-│   └── index.html          # Dashboard UI
-├── static/
-│   └── app.js              # Frontend logic (optional)
-├── .env                    # API credentials (DO NOT COMMIT)
-└── README.md
+[Packet Capture]
+        ↓
+[Feature Extraction (L2–L4)]
+        ↓
+[Flow Generation & Aggregation]
+        ↓
+[Protocol Detection + TCP Behaviour Analysis]
+        ↓
+[Machine Learning Classification]
+        ↓
+[Risk Scoring (API + Heuristic)]
+        ↓
+[Dashboard Visualization & Export]
 ```
 
 ---
 
-## 3) Prerequisites
+## Dashboard Preview
+![Dashboard](./docs/dashboard.png)
 
-- Windows 10 / 11  
-- **Npcap** (Install with *WinPcap API-compatible mode*)  
-- Python 3.9 – 3.12  
-- Run terminal as **Administrator** (required for packet capture)
+SOC-style dashboard showing packet and flow risk analysis
+<!-- 
+### Review Logs Page
+![alt text](./docs/review_logs-1.png)
+![alt text](./docs/review_logs-2.png)
+![alt text](./docs/review_logs-3.png)
+![alt text](./docs/review_logs-4.png)
+![alt text](./docs/review_logs-5.png)
+![alt text](./docs/review_logs-6.png) -->
 
 ---
 
-## 4) Setup
+## 3) Project Structure
 
-```powershell
+```text
+packet-header_n_frame-analysis/
+├── app.py                  # FastAPI backend (API + dashboard routes)
+├── fyp1.py                 # Packet capture + feature extraction engine
+├── random_forest/
+│   └── rf_model.joblib     # Trained ML model
+
+├── templates/
+│   └── index.html          # Main dashboard UI
+
+├── static/
+│   ├── app.js              # Frontend logic (API calls, rendering)
+│   ├── style.css           # UI styling (if exists)
+
+├── data/                   # Generated output files
+│   ├── capture_live.pcap   # Raw captured packets
+│   ├── features.csv        # Packet-level features
+│   ├── scores.csv          # ML scoring results
+│   ├── flows.csv           # Flow-level aggregation
+│   ├── capture_log.txt     # Capture logs (if implemented)
+
+├── exports/                # Exported files (if you separate them)
+│   ├── *.csv
+│   ├── *.txt
+│   ├── *.pcap
+
+├── .env                    # API credentials (DO NOT COMMIT)
+├── requirements.txt        # Python dependencies (recommended to add)
+├── README.md
+```
+
+---
+
+## 4) Prerequisites
+
+- Windows 10 / 11
+- Npcap (install with WinPcap API-compatible mode)
+- Python 3.9 – 3.12
+- Administrator privileges (required for packet capture)
+
+---
+
+## 5) Setup
+
+```bash
 py -m venv .venv
 .\.venv\Scripts\activate
 
 python -m pip install --upgrade pip wheel
 
-pip install fastapi uvicorn jinja2 pydantic
-pip install scapy pandas numpy scikit-learn joblib python-dotenv
+pip install -r requirements.txt
+```
+
+### Ensure `requirements.txt` is up to date:
+```bash
+pip freeze > requirements.txt
 ```
 
 ---
 
-## 5) Configure Scamalytics API
+## 6) Configure Scamalytics API
 
-Create a `.env` file in the root directory:
+Create a `.env` file:
 
 ```env
 SCAMALYTICS_USER=your_user
@@ -72,11 +175,10 @@ SCAMALYTICS_KEY=your_api_key
 SCAMALYTICS_BASE_URL=https://api13.scamalytics.com/v3
 SCAMALYTICS_TIMEOUT=3.0
 ```
-⚠️ Do NOT commit .env to GitHub
 
 ---
 
-## 6) Run the Web Dashboard
+## 7) Run the System
 
 ```powershell
 uvicorn app:app --reload
@@ -88,100 +190,188 @@ http://127.0.0.1:8000
 
 ---
 
-## 7) How to Use
+## 8) How to Use
 
 ### Step 1 — Start Capture
 
-- Select interface  
-- Set duration (seconds)  
+- Select network interface
+- Set capture duration
 - Click **Start Capture**
 
 **Output:**
-- `capture_live.pcap`  
-- `features.csv`  
 
----
+- `capture_live.pcap`
+- `features.csv`
 
-### Step 2 — Run Scoring
+### Step 2 — Run Detection Pipeline
 
-Click **Score**
+- Click **Score**
 
 **Pipeline:**
 
-1. Load `features.csv`  
-2. Run ML detection  
-3. Apply risk scoring:
-   - Scamalytics API (public IP)  
-   - Heuristic fallback (private/API fail)  
+- Feature extraction
+- Flow generation
+- Protocol tagging
+- TCP behaviour analysis
+- ML classification
+- Risk scoring (API + heuristic)
 
 **Output:**
+
 - `scores.csv`
+- `flows.csv`
 
 ---
 
-## 8) Output Files
+## 9) Detection Features
 
-| File                | Description                        |
-|---------------------|------------------------------------|
-| `capture_live.pcap` | Raw packet capture                 |
-| `features.csv`      | Extracted L2–L4 features           |
-| `scores.csv`        | Final detection + risk scoring     |
+### 1. Protocol Detection (Hybrid)
 
----
+- Payload-based detection (HTTP/TLS parsing)
+- Port-based fallback
 
-## 9) Scoring Model
-
-### 1. Machine Learning (RF Model)
-
-Classifies packets into:
-- `attack`  
-- `tampered`  
-- `benign`  
+| Port | Protocol |
+| ---- | -------- |
+| 80   | HTTP     |
+| 443  | TLS      |
+| 22   | SSH      |
+| 445  | SMB      |
 
 ---
 
-### 2. Risk Scoring
+### 2. TCP Behaviour Analysis
 
-**External (Primary)**
-- Scamalytics API  
-- Returns:
-  - `ip_fraud_score` (0–100)  
-  - `risk_level` (low → very high)  
-
-**Internal (Fallback)**  
-Header-based heuristic:
-- checksum errors  
-- fragmentation  
-- abnormal TTL  
-- suspicious TCP flags  
-- DSCP anomalies  
+- SYN without ACK → possible scan
+- RST-heavy flows → abnormal termination
+- Incomplete handshake detection
+- Direction imbalance (fwd vs rev packets)
 
 ---
 
-### 3. Final Output Columns
+### 3. Header-Based Anomaly Detection
 
-| Column                   | Description                         |
-|--------------------------|-------------------------------------|
-| `ip_fraud_score`         | Numeric score (0–100)               |
-| `ip_fraud_score_display` | Formatted score (e.g. 87/100)       |
-| `risk_level`             | low / medium / high / very high     |
-| `label`                  | ML classification                   |
+- Invalid checksum
+- Fragmentation anomalies
+- Abnormal TTL values
+- Suspicious TCP flags
+- DSCP inconsistencies
 
 ---
 
-## 10) CLI Usage (Optional)
+### 4. Machine Learning Model
 
-**List interfaces:**
-```powershell
+Random Forest classifier:
+
+- attack
+- tampered
+- benign
+
+---
+
+### 5. Risk Scoring
+
+**External (Primary):**
+
+- Scamalytics API
+- IP fraud score (0–100)
+
+**Internal (Fallback):**
+
+- Header anomaly scoring
+
+---
+
+## 10) Dashboard Features
+
+- Top 10 highest risk packets
+- Top 10 highest risk flows
+- Protocol evidence summary
+- Full packet records
+- Flow-level records
+- Capture log preview
+
+---
+
+## 11) Export Features
+
+Supports export of:
+
+- CSV (features, scores, flows)
+- TXT (logs)
+- PCAP (raw capture)
+
+**Filename format:**
+
+YYYYMMDD_HHMM_filename.type
+
+**Example:**
+
+20260412_1449_scores.csv
+
+---
+
+## 12) CLI Usage
+
+**List interfaces**
+
+```bash
 python fyp1.py -l
 ```
 
-**Capture traffic:**
-```powershell
+**Capture traffic**
+
+```bash
 python fyp1.py -t 10
 ```
 
-**Custom interface:**
-```powershell
+**Custom interface**
+
+```bash
 python fyp1.py -i \Device\NPF_{GUID} -t 10
 ```
+
+---
+
+## 13) Dataset
+
+- Live captured traffic in VM environment
+
+**Protocols:**
+
+- HTTP
+- TLS
+- SSH
+- SMB
+
+- Includes both normal and anomalous traffic patterns
+
+---
+
+## 14) Key Contribution
+
+This project introduces a:
+
+- Lightweight header-only detection framework for encrypted traffic environments
+
+**Unlike traditional systems:**
+
+- No payload dependency
+- No signature reliance
+- Works on encrypted traffic
+- Detects frame-level anomalies
+
+---
+
+## 15) Future Improvements
+
+- Deep learning model (LSTM / Autoencoder)
+- Real-time streaming detection
+- SIEM integration
+- Advanced attack simulation (DDoS, MITM)
+
+---
+
+## 16) Security Note
+
+- Do NOT commit `.env`
+- API keys must remain private
