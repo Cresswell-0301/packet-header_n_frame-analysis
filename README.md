@@ -1,6 +1,4 @@
-# NetRisk — Network Traffic Frame Integrity & Threat Classification
-
-### Header & Flow Analysis with Prototype Detector
+### Network Traffic Frame Integrity & Threat Classification Header & Flow Analysis with Prototype Detector
 
 A web-based system for **real-time network traffic analysis, frame integrity verification, and threat classification** using:
 
