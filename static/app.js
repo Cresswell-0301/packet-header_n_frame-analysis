@@ -96,7 +96,12 @@ async function runCaptureAndScore() {
 
         stdoutBox.textContent = (captureJson.stdout || "No standard output.") + "\n--- Scoring Output ---\n" + (scoreJson.stdout || "No standard output.");
 
-        stderrBox.textContent = (captureJson.stderr || "No standard error.") + "\n\n--- Scoring Error ---\n" + (scoreJson.stderr || "No standard error.");
+        stderrBox.textContent =
+            (captureJson.stderr || "No standard error.") +
+            "\n\n--- Scoring Error ---\n" +
+            (scoreJson.stderr || `No standard error. Status: ${scoreResponse.status} ${scoreResponse.statusText}`);
+
+        stdoutBox.textContent += "\n\n--- Process completed ---";
 
         if (!scoreResponse.ok || !scoreJson.ok) {
             setStatus("error", scoreJson.message || "Scoring failed.");
