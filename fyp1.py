@@ -1518,20 +1518,20 @@ def is_public_routable_ip(value):
 
 def scamalytics_lookup(ip_addr, api_user, api_key, timeout=SCAMALYTICS_TIMEOUT):
     if not api_user or not api_key:
-        return None, "api_missing_heuristic"
+        return None, "api_missing"
 
     if not ip_addr:
-        return None, "no_ip_heuristic"
+        return None, "no_ip"
 
     ip_addr = str(ip_addr).strip()
 
     if not is_public_routable_ip(ip_addr):
-        return None, "private_ip_heuristic"
+        return None, "private_ip"
 
     cache_key = (ip_addr, api_user)
 
     if cache_key in scamalytics_cache:
-        return scamalytics_cache[cache_key], "public_ip_scamalytics"
+        return scamalytics_cache[cache_key], "public_ip"
 
     query = urlencode({"key": api_key, "ip": ip_addr})
     url = f"{SCAMALYTICS_BASE_URL}/{api_user}/?{query}"
@@ -1547,7 +1547,7 @@ def scamalytics_lookup(ip_addr, api_user, api_key, timeout=SCAMALYTICS_TIMEOUT):
         with urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
     except Exception:
-        return None, "api_failed_heuristic"
+        return None, "api_failed"
 
     scam = payload.get("scamalytics", {}) or {}
 
