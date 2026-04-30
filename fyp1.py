@@ -1609,7 +1609,7 @@ def score_packet(args):
 
         ip_fraud_scores = []
         risk_levels = []
-        score_sources = []
+        # score_sources = []
         score_reasons = []
 
         api_user = args.scamalytics_user or SCAMALYTICS_USER
@@ -1619,13 +1619,13 @@ def score_packet(args):
             s, rs, source, reason = score_row(r, api_user=api_user, api_key=api_key)
             ip_fraud_scores.append(s)
             risk_levels.append(rs)
-            score_sources.append(source)
+            # score_sources.append(source)
             score_reasons.append(reason)
 
         df["ip_fraud_score"] = ip_fraud_scores
         df["ip_fraud_score_display"] = df["ip_fraud_score"].astype(str) + "/100"
         df["risk_level"] = risk_levels
-        df["risk_score_source"] = score_sources
+        # df["risk_score_source"] = score_sources
         df["risk_score_reason"] = score_reasons
 
         # add score columns to the end in exact order
@@ -1635,7 +1635,7 @@ def score_packet(args):
             "ip_fraud_score", 
             "ip_fraud_score_display", 
             "risk_level",
-            "risk_score_source", 
+            # "risk_score_source", 
             "risk_score_reason"
         ):
             final_cols.remove(c)
@@ -1644,7 +1644,7 @@ def score_packet(args):
             "ip_fraud_score", 
             "ip_fraud_score_display", 
             "risk_level",
-            "risk_score_source", 
+            # "risk_score_source", 
             "risk_score_reason"
             ]
 
