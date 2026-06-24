@@ -5,5 +5,7 @@ __pycache__/
 .venv/
 
 !cleaned_dataset/*.csv
+!requirements.txt
 
 .env
+
