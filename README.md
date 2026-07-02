@@ -163,20 +163,7 @@ pip freeze > requirements.txt
 
 ---
 
-## 6) Configure Scamalytics API
-
-Create a `.env` file:
-
-```env
-SCAMALYTICS_USER=your_user
-SCAMALYTICS_KEY=your_api_key
-SCAMALYTICS_BASE_URL=https://api13.scamalytics.com/v3
-SCAMALYTICS_TIMEOUT=3.0
-```
-
----
-
-## 7) Run the System
+## 6) Run the System
 
 ```powershell
 uvicorn app:app --reload
@@ -188,7 +175,7 @@ http://127.0.0.1:8000
 
 ---
 
-## 8) How to Use
+## 7) How to Use
 
 ### Step 1 — Start Capture
 
@@ -221,7 +208,7 @@ http://127.0.0.1:8000
 
 ---
 
-## 9) Detection Features
+## 8) Detection Features
 
 ### 1. Protocol Detection (Hybrid)
 
@@ -279,7 +266,7 @@ Random Forest classifier:
 
 ---
 
-## 10) Dashboard Features
+## 9) Dashboard Features
 
 - Top 10 highest risk packets
 - Top 10 highest risk flows
@@ -290,7 +277,7 @@ Random Forest classifier:
 
 ---
 
-## 11) Export Features
+## 10) Export Features
 
 Supports export of:
 
@@ -308,7 +295,7 @@ YYYYMMDD_HHMM_filename.type
 
 ---
 
-## 12) CLI Usage
+## 11) CLI Usage
 
 **List interfaces**
 
@@ -330,7 +317,7 @@ python fyp1.py -i \Device\NPF_{GUID} -t 10
 
 ---
 
-## 13) Dataset
+## 12) Dataset
 
 - Live captured traffic in VM environment
 
@@ -345,7 +332,7 @@ python fyp1.py -i \Device\NPF_{GUID} -t 10
 
 ---
 
-## 14) Key Contribution
+## 13) Key Contribution
 
 This project introduces a:
 
@@ -360,7 +347,7 @@ This project introduces a:
 
 ---
 
-## 15) Future Improvements
+## 14) Future Improvements
 
 - Deep learning model (LSTM / Autoencoder)
 - Real-time streaming detection
@@ -369,7 +356,7 @@ This project introduces a:
 
 ---
 
-## 16) Security Note
+## 15) Security Note
 
 - Do NOT commit `.env`
 - API keys must remain private
