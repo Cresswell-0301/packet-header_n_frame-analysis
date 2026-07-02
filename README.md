@@ -5,7 +5,6 @@ A web-based system for **real-time network traffic analysis, frame integrity ver
 - L2–L4 header analysis (Scapy)
 - Flow-based behavioural analysis
 - Machine Learning (Random Forest)
-- External threat intelligence (Scamalytics API)
 - Interactive SOC-style dashboard (FastAPI)
 
 ---
@@ -28,7 +27,7 @@ Unlike DPI systems, this system:
 - Protocol identification (HTTP, TLS, SSH, SMB)
 - TCP behaviour analysis (SYN/ACK patterns)
 - Machine learning classification
-- IP risk enrichment (Scamalytics API)
+- IP risk enrichment
 - SOC-style dashboard visualization
 - Export results (CSV / TXT / PCAP)
 
@@ -255,14 +254,8 @@ Random Forest classifier:
 
 ### 5. Risk Scoring
 
-**External (Primary):**
-
-- Scamalytics API
-- IP fraud score (0–100)
-
-**Internal (Fallback):**
-
 - Header anomaly scoring
+- IP fraud score (0–100)
 
 ---
 
